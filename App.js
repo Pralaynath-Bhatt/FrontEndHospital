@@ -3,12 +3,12 @@ import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import DoctorLoginScreen from './screens/DoctorLoginScreen';
-import DoctorRegisterScreen from './screens/DoctorRegisterScreen';
-import PatientLoginScreen from './screens/PatientLoginScreen';
-import PatientRegisterScreen from './screens/PatientRegisterScreen';
-import DoctorHomeScreen from './screens/DoctorHomeScreen';
-import PatientHomeScreen from './screens/PatientHomeScreen';
+import DoctorLoginScreen from './screen/DoctorLoginScreen';
+import DoctorRegisterScreen from './screen/DoctorRegisterScreen';
+import PatientLoginScreen from './screen/PatientLoginScreen';
+import PatientRegisterScreen from './screen/PatientRegisterScreen';
+import DoctorHomeScreen from './screen/DoctorHomeScreen';
+import PatientHomeScreen from './screen/PatientHomeScreen';
 
 const Stack = createNativeStackNavigator();
 
