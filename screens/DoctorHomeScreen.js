@@ -1,47 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   Button,
   StyleSheet,
   ActivityIndicator,
-  TextInput,
-  FlatList,
-  Dimensions,
   ScrollView,
-  Keyboard,
-  TouchableWithoutFeedback,
+  TouchableOpacity,
+  Dimensions,
+  FlatList,
+  SafeAreaView,
 } from 'react-native';
 import { Audio } from 'expo-av';
-import Animated, { FadeInLeft, FadeInDown, FadeInUp, FadeInRight } from 'react-native-reanimated';
-import axios from 'axios'; // Make sure axios is installed
+import Animated, { FadeInDown, FadeInUp, FadeInLeft, FadeInRight } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import Modal from 'react-native-modal';
 
 const screenWidth = Dimensions.get('window').width;
 const numColumns = 2;
 const cardMargin = 10;
 const cardWidth = (screenWidth - cardMargin * (numColumns * 2)) / numColumns;
 
-const dismissKeyboard = () => Keyboard.dismiss();
+const DATA_CARDS = [
+  { key: 'symptoms', title: 'Symptoms', icon: 'stethoscope' },
+  { key: 'prediction', title: 'Prediction', icon: 'heartbeat' },
+  { key: 'medicines', title: 'Medicines', icon: 'pills' },
+];
 
-export default function DoctorHomeScreen({ onLogout }) {
+const LoadingIndicator = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color="#4a90e2" />
+    <Text style={styles.loadingText}>Analyzing recording...</Text>
+  </View>
+);
+
+const DiagnosisCard = ({ item, data }) => (
+  <Animated.View style={styles.card} entering={FadeInUp.delay(item.delay || 0).duration(800)}>
+    <View style={styles.cardIcon}>
+      <FontAwesome5 name={item.icon} size={24} color="#3a7bd5" />
+    </View>
+    <Text style={styles.cardTitle}>{item.title}</Text>
+    <Text style={styles.cardData}>{data}</Text>
+  </Animated.View>
+);
+
+export default function DoctorHomeScreen({ navigation, onLogout }) {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
-  const [patientIdInput, setPatientIdInput] = useState('');
-  const [patientDiagnosisList, setPatientDiagnosisList] = useState(null);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState('');
+  const [isModalVisible, setModalVisible] = useState(false);
 
-  // Mock start recording function (same as before)
   async function startRecording() {
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
-        alert('Permission to access microphone is required!');
+        setModalVisible(true);
         return;
       }
-      setIsLoading(true);
+      setIsRecording(true);
+      setDiagnosis(null);
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -50,227 +69,109 @@ export default function DoctorHomeScreen({ onLogout }) {
         Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
       );
       setRecording(recording);
-      setIsRecording(true);
-      setIsLoading(false);
     } catch (err) {
       console.error('Failed to start recording', err);
-      setIsLoading(false);
     }
   }
 
-  // Mock stop recording function (same as before)
   async function stopRecording() {
+    setIsRecording(false);
     setIsLoading(true);
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setIsRecording(false);
+    await recording.stopAndUnloadAsync();
+    const uri = recording.getURI();
+    console.log('Recording stopped and stored at', uri);
 
-      // Mock upload returning dummy diagnosis
-      const response = await new Promise((resolve) => {
-        setTimeout(() => resolve({
-          symptoms: ['Chest pain', 'Shortness of breath'],
-          prediction: 'Heart Disease Positive',
-          medicines: ['Aspirin', 'Beta Blockers', 'Statins'],
-          prescription: ['Take Aspirin 75mg daily', 'Avoid smoking'],
-        }), 2000);
-      });
+    // Simulate API call and analysis
+    await new Promise(res => setTimeout(res, 3000));
+    setDiagnosis({
+      symptoms: ['Chest pain', 'Shortness of breath'],
+      prediction: 'Heart Disease Positive',
+      medicines: ['Aspirin', 'Statins'],
+    });
 
-      setDiagnosis(response);
-    } catch (error) {
-      console.error(error);
-      alert('Error uploading audio');
-    }
     setIsLoading(false);
     setRecording(null);
   }
 
-  // Fetch patient diagnosis list by patient ID (replace with real API call)
-  async function searchPatientDiagnoses() {
-    if (!patientIdInput.trim()) {
-      alert('Please enter a Patient ID or name');
-      return;
+  const renderCardItem = ({ item }) => {
+    let data;
+    switch (item.key) {
+      case 'symptoms':
+        data = diagnosis.symptoms.join(', ');
+        break;
+      case 'prediction':
+        data = diagnosis.prediction;
+        break;
+      case 'medicines':
+        data = diagnosis.medicines.length > 0 ? diagnosis.medicines.join(', ') : 'N/A';
+        break;
+      default:
+        data = '';
     }
-    setSearchLoading(true);
-    setSearchError('');
-    setPatientDiagnosisList(null);
-
-    try {
-      // Replace the below with real API call, for example:
-      // const response = await axios.get(`https://your-backend/api/diagnosis/patientByIdOrName?query=${patientIdInput.trim()}`);
-
-      // MOCK response:
-      await new Promise((res) => setTimeout(res, 1500)); // simulate network delay
-      // Simulate no patient found:
-      if (patientIdInput.trim().toLowerCase() === 'unknown') {
-        throw new Error('Patient not found');
-      }
-
-      const mockData = [
-        {
-          date: '2024-06-15',
-          symptoms: ['Mild chest pain', 'Fatigue'],
-          prediction: 'Heart Disease Negative',
-          medicines: ['Vitamin D', 'Exercise'],
-        },
-        {
-          date: '2024-03-10',
-          symptoms: ['Shortness of breath', 'High blood pressure'],
-          prediction: 'Heart Disease Positive',
-          medicines: ['Aspirin', 'Beta Blockers'],
-        },
-      ];
-
-      setPatientDiagnosisList(mockData);
-    } catch (err) {
-      setSearchError(err.message || 'Failed to load patient diagnosis');
-    }
-    setSearchLoading(false);
-  }
-
-  const dataCards = diagnosis
-    ? [
-        {
-          key: 'symptoms',
-          title: 'Symptoms',
-          data: diagnosis.symptoms,
-          entering: FadeInLeft.delay(100),
-        },
-        {
-          key: 'prediction',
-          title: 'Prediction',
-          data: [diagnosis.prediction],
-          entering: FadeInDown.delay(200),
-        },
-        {
-          key: 'medicines',
-          title: 'Medicines',
-          data: diagnosis.medicines,
-          entering: FadeInUp.delay(300),
-        },
-        {
-          key: 'prescription',
-          title: 'Prescription',
-          data: diagnosis.prescription || ['No prescriptions'],
-          entering: FadeInRight.delay(400),
-        },
-      ]
-    : [];
-
-  const renderCardItem = ({ item }) => (
-    <Animated.View
-      entering={item.entering}
-      style={[styles.card, { width: cardWidth, margin: cardMargin }]}
-    >
-      <Text style={styles.cardTitle}>{item.title}</Text>
-      {item.data.map((line, idx) => (
-        <Text key={idx} style={styles.cardText}>
-          • {line}
-        </Text>
-      ))}
-    </Animated.View>
-  );
-
-  // Render cards for searched patient's diagnosis
-  const renderPatientDiagnosisCard = ({ item, index }) => (
-    <View key={index} style={styles.diagnosisContainer}>
-      <Text style={styles.date}>Date: {item.date}</Text>
-      <View style={styles.patientCardsGrid}>
-        <View style={[styles.patientCard, { width: cardWidth }]}>
-          <Text style={styles.patientCardTitle}>Symptoms</Text>
-          {item.symptoms && item.symptoms.length > 0 ? (
-            item.symptoms.map((s, i) => (
-              <Text key={i} style={styles.patientCardText}>
-                • {s}
-              </Text>
-            ))
-          ) : (
-            <Text style={styles.patientCardText}>None</Text>
-          )}
-        </View>
-        <View style={[styles.patientCard, { width: cardWidth }]}>
-          <Text style={styles.patientCardTitle}>Prediction</Text>
-          <Text style={[styles.patientCardText, { fontWeight: 'bold' }]}>
-            {item.prediction}
-          </Text>
-        </View>
-        <View style={[styles.patientCard, { width: cardWidth }]}>
-          <Text style={styles.patientCardTitle}>Medicines</Text>
-          {item.medicines && item.medicines.length > 0 ? (
-            item.medicines.map((m, i) => (
-              <Text key={i} style={styles.patientCardText}>
-                • {m}
-              </Text>
-            ))
-          ) : (
-            <Text style={styles.patientCardText}>None</Text>
-          )}
-        </View>
-      </View>
-    </View>
-  );
+    return <DiagnosisCard item={item} data={data} />;
+  };
 
   return (
-    <TouchableWithoutFeedback onPress={dismissKeyboard}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Doctor Home</Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <SafeAreaView>
+        <Text style={styles.title}>Doctor Dashboard</Text>
+        <Text style={styles.subtitle}>Start a new diagnosis by recording a patient's description.</Text>
 
-        {/* Patient Search Box */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            placeholder="Enter Patient ID or Name"
-            value={patientIdInput}
-            onChangeText={setPatientIdInput}
-            style={styles.searchInput}
-            returnKeyType="search"
-            onSubmitEditing={searchPatientDiagnoses}
-          />
-          <Button
-            title={searchLoading ? 'Searching...' : 'Search'}
-            onPress={searchPatientDiagnoses}
-            disabled={searchLoading}
-          />
+        <View style={styles.actionSection}>
+          <TouchableOpacity
+            style={styles.recordButton}
+            onPress={isRecording ? stopRecording : startRecording}>
+            <LinearGradient
+              colors={isRecording ? ['#e05247', '#e05247'] : ['#4a90e2', '#3477e2']}
+              style={styles.gradientFill}>
+              <Ionicons
+                name={isRecording ? 'stop-circle-outline' : 'mic-outline'}
+                size={40}
+                color="white"
+              />
+              <Text style={styles.recordButtonText}>
+                {isRecording ? 'Stop Recording' : 'Start Recording'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
 
-        {/* Search Result / Error */}
-        {searchError ? (
-          <Text style={styles.errorText}>{searchError}</Text>
-        ) : null}
+        {isLoading && <LoadingIndicator />}
 
-        {patientDiagnosisList && patientDiagnosisList.length > 0 && (
-          <>
-            <Text style={styles.searchResultTitle}>Patient Diagnosis Reports</Text>
-            {patientDiagnosisList.map((item, idx) => renderPatientDiagnosisCard({ item, index: idx }))}
-          </>
-        )}
-
-        {/* Audio Recording Section */}
-        <View style={{ marginVertical: 20 }}>
-          {!isRecording ? (
-            <Button title="Start Recording" onPress={startRecording} disabled={isLoading} />
-          ) : (
-            <Button title="Stop Recording" onPress={stopRecording} disabled={isLoading} color="red" />
-          )}
-        </View>
-
-        {/* Latest Diagnosis from current audio recording */}
         {diagnosis && (
-          <FlatList
-            data={dataCards}
-            renderItem={renderCardItem}
-            keyExtractor={(item) => item.key}
-            numColumns={numColumns}
-            scrollEnabled={false}
-            contentContainerStyle={{ alignItems: 'center' }}
-            showsVerticalScrollIndicator={false}
-          />
+          <Animated.View entering={FadeInUp.duration(1000)} style={styles.diagnosisResults}>
+            <Text style={styles.resultsTitle}>Diagnosis Results</Text>
+            <FlatList
+              data={DATA_CARDS.map((item, index) => ({ ...item, delay: index * 200 }))}
+              renderItem={renderCardItem}
+              keyExtractor={item => item.key}
+              numColumns={numColumns}
+              scrollEnabled={false}
+              contentContainerStyle={{ alignItems: 'center' }}
+              showsVerticalScrollIndicator={false}
+            />
+          </Animated.View>
         )}
+      </SafeAreaView>
 
-        <View style={{ marginTop: 20 }}>
-          <Button title="Logout" onPress={onLogout} color="gray" />
+      <View style={styles.bottomButtons}>
+        <TouchableOpacity onPress={() => navigation.navigate('DoctorRegister')} style={styles.linkButton}>
+          <Text style={styles.linkText}>Need an account? Register here</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
+          <Text style={styles.logoutButtonText}>LOGOUT</Text>
+        </TouchableOpacity>
+      </View>
+      <Modal isVisible={isModalVisible} onBackdropPress={() => setModalVisible(false)}>
+        <View style={styles.modalContent}>
+          <Ionicons name="mic-off-outline" size={50} color="#FF6347" />
+          <Text style={styles.modalText}>Permission to access microphone is required!</Text>
+          <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalButton}>
+            <Text style={styles.modalButtonText}>OK</Text>
+          </TouchableOpacity>
         </View>
-      </ScrollView>
-    </TouchableWithoutFeedback>
+      </Modal>
+    </ScrollView>
   );
 }
 
@@ -278,100 +179,158 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     padding: 20,
-    justifyContent: 'flex-start',
+    backgroundColor: '#f5f7fa',
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 34,
+    fontWeight: '700',
     marginTop: 10,
-    marginBottom: 20,
+    marginBottom: 5,
     textAlign: 'center',
+    color: '#333',
   },
-  searchContainer: {
-    flexDirection: 'row',
-    marginBottom: 15,
-    justifyContent: 'space-between',
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 30,
   },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: '#777',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+  actionSection: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  recordButton: {
+    borderRadius: 999,
+    width: 150,
+    height: 150,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 6,
+  },
+  gradientFill: {
     flex: 1,
-    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  recordButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#4a90e2',
     fontSize: 16,
   },
-  errorText: {
-    color: 'red',
-    marginBottom: 15,
-    textAlign: 'center',
+  diagnosisResults: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    marginBottom: 20,
   },
-  searchResultTitle: {
-    fontSize: 20,
+  resultsTitle: {
+    fontSize: 22,
     fontWeight: '600',
-    marginBottom: 12,
+    marginBottom: 15,
     color: '#333',
     textAlign: 'center',
   },
-  diagnosisContainer: {
-    marginBottom: 30,
-    backgroundColor: '#dbeafe',
-    borderRadius: 12,
-    padding: 15,
-  },
-  date: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 12,
-    color: '#1e40af',
-  },
-  patientCardsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  patientCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    minHeight: 120,
-  },
-  patientCardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
-    color: '#123a8d',
-  },
-  patientCardText: {
-    fontSize: 15,
-    marginBottom: 4,
-    color: '#334880',
-  },
   card: {
-    backgroundColor: 'white',
-    borderRadius: 12,
+    backgroundColor: '#eef3f7',
+    borderRadius: 15,
     padding: 15,
+    margin: cardMargin,
+    width: cardWidth,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
-    minHeight: 140,
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  cardIcon: {
+    marginBottom: 8,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  cardText: {
-    fontSize: 15,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#444',
+    textAlign: 'center',
     marginBottom: 5,
+  },
+  cardData: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  bottomButtons: {
+    marginTop: 30,
+    alignItems: 'center',
+  },
+  linkButton: {
+    marginBottom: 15,
+  },
+  linkText: {
+    color: '#4a90e2',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  logoutButton: {
+    backgroundColor: '#ff6347',
+    borderRadius: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    shadowColor: '#ff6347',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  logoutButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    padding: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  modalText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  modalButton: {
+    backgroundColor: '#4a90e2',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginTop: 10,
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

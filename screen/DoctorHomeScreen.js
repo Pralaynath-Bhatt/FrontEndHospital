@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import Animated, { FadeInDown, FadeInUp, FadeInLeft, FadeInRight } from 'react-n
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import Modal from 'react-native-modal';
+import axios from 'axios';
 
 const screenWidth = Dimensions.get('window').width;
 const numColumns = 2;
@@ -52,6 +53,15 @@ export default function DoctorHomeScreen({ navigation, onLogout }) {
   const [diagnosis, setDiagnosis] = useState(null);
   const [isModalVisible, setModalVisible] = useState(false);
 
+  // To track mounting state - prevent state updates if unmounted
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   async function startRecording() {
     try {
       const permission = await Audio.requestPermissionsAsync();
@@ -75,35 +85,72 @@ export default function DoctorHomeScreen({ navigation, onLogout }) {
   }
 
   async function stopRecording() {
+    if (!recording) return;
     setIsRecording(false);
     setIsLoading(true);
-    await recording.stopAndUnloadAsync();
-    const uri = recording.getURI();
-    console.log('Recording stopped and stored at', uri);
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      console.log('Recording stopped and stored at', uri);
 
-    // Simulate API call and analysis
-    await new Promise(res => setTimeout(res, 3000));
-    setDiagnosis({
-      symptoms: ['Chest pain', 'Shortness of breath'],
-      prediction: 'Heart Disease Positive',
-      medicines: ['Aspirin', 'Statins'],
-    });
+      // Prepare FormData with the audio file to send to backend
+      // Replace below URL with your actual backend endpoint
+      const formData = new FormData();
+      formData.append('audio', {
+        uri,
+        name: 'recording.wav',
+        type: 'audio/wav',
+      });
 
-    setIsLoading(false);
-    setRecording(null);
+      // Example backend call - replace URL & headers as per your backend
+      // For demonstration, this request and result is simulated below
+
+      // Uncomment for real backend call:
+      /*
+      const response = await axios.post('http://YOUR_BACKEND_URL/api/diagnosis/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      const result = response.data;
+      */
+
+      // Simulated API delay & response:
+      await new Promise(res => setTimeout(res, 3000));
+      const result = {
+        symptoms: ['Chest pain', 'Shortness of breath'],
+        prediction: 'Heart Disease Positive',
+        medicines: ['Aspirin', 'Statins'],
+      };
+
+      if (isMounted.current) {
+        setDiagnosis(result);
+      }
+    } catch (error) {
+      console.error('Error during stopRecording:', error);
+      if (isMounted.current) {
+        setDiagnosis(null);
+      }
+      alert('Failed to analyze recording. Please try again.');
+    }
+    if (isMounted.current) {
+      setIsLoading(false);
+      setRecording(null);
+    }
   }
 
   const renderCardItem = ({ item }) => {
-    let data;
+    let data = '';
+    if (!diagnosis) return null;
     switch (item.key) {
       case 'symptoms':
-        data = diagnosis.symptoms.join(', ');
+        data = diagnosis.symptoms ? diagnosis.symptoms.join(', ') : '';
         break;
       case 'prediction':
-        data = diagnosis.prediction;
+        data = diagnosis.prediction || '';
         break;
       case 'medicines':
-        data = diagnosis.medicines.length > 0 ? diagnosis.medicines.join(', ') : 'N/A';
+        data = diagnosis.medicines && diagnosis.medicines.length > 0 ? diagnosis.medicines.join(', ') : 'N/A';
         break;
       default:
         data = '';
@@ -120,10 +167,13 @@ export default function DoctorHomeScreen({ navigation, onLogout }) {
         <View style={styles.actionSection}>
           <TouchableOpacity
             style={styles.recordButton}
-            onPress={isRecording ? stopRecording : startRecording}>
+            onPress={isRecording ? stopRecording : startRecording}
+            activeOpacity={0.8}
+          >
             <LinearGradient
               colors={isRecording ? ['#e05247', '#e05247'] : ['#4a90e2', '#3477e2']}
-              style={styles.gradientFill}>
+              style={styles.gradientFill}
+            >
               <Ionicons
                 name={isRecording ? 'stop-circle-outline' : 'mic-outline'}
                 size={40}
