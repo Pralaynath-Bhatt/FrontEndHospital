@@ -10,10 +10,17 @@ import {
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import Modal from "react-native-modal";
+import axios from "axios";
 
 export default function PatientLoginScreen({ navigation, onLogin }) {
-  const [patientId, setPatientId] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState("");
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -34,13 +41,57 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
     ]).start();
   }, []);
 
-  const handleLogin = () => {
-    if (patientId.trim() === "") {
-      alert("Enter Patient ID");
+  const toggleModal = () => {
+    setModalVisible(!isModalVisible);
+  };
+
+  const handleLogin = async () => {
+    if (name.trim() === "" || password === "") {
+      setModalMessage("Please enter both name and password.");
+      setModalVisible(true);
       return;
     }
-    // TODO: validate patient via backend
-    onLogin();
+
+    setLoading(true);
+    try {
+      // Replace with your actual backend API endpoint
+      const response = await axios.post("http://localhost:8080/api/patient/login", {
+        name: name.trim(),
+        password,
+      });
+
+      if (response.status === 200 && response.data) {
+        // Handle successful login here (e.g., save token, call onLogin, navigate)
+        setModalMessage("Login successful!");
+        setModalVisible(true);
+        // You can call onLogin() here if needed
+      } else {
+        setModalMessage("Login failed. Please check your credentials.");
+        setModalVisible(true);
+      }
+    } catch (error) {
+      console.log("Login error:", error.response || error.message);
+      if (error.response && error.response.data) {
+        const message =
+          typeof error.response.data === "string"
+            ? error.response.data
+            : error.response.data.message || "Login failed";
+        setModalMessage(message);
+      } else {
+        setModalMessage("Network error. Please try again later.");
+      }
+      setModalVisible(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onModalOkPress = () => {
+    setModalVisible(false);
+    if (modalMessage === "Login successful!") {
+      if (onLogin) onLogin();
+      navigation.replace("PatientHome"); // or your app's main patient screen
+    }
   };
 
   return (
@@ -57,32 +108,69 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
         >
           <Text style={styles.title}>Patient Login</Text>
 
-          {/* Patient ID Input */}
+          {/* Name Input */}
           <View style={styles.inputContainer}>
             <Ionicons name="person-circle-outline" size={22} color="#666" />
             <TextInput
-              placeholder="Patient ID"
-              value={patientId}
-              onChangeText={setPatientId}
+              placeholder="Name"
+              value={name}
+              onChangeText={setName}
               style={styles.input}
-              autoCapitalize="none"
+              autoCapitalize="words"
+              editable={!loading}
+              returnKeyType="next"
             />
           </View>
-          
+
+          {/* Password Input */}
+          <View style={styles.inputContainer}>
+            <Ionicons name="lock-closed-outline" size={22} color="#666" />
+            <TextInput
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              style={styles.input}
+              secureTextEntry
+              editable={!loading}
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
+            />
+          </View>
 
           {/* Login Button */}
-          <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
-            <Text style={styles.loginText}>Login</Text>
+          <TouchableOpacity
+            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            <Text style={styles.loginText}>
+              {loading ? "Logging in..." : "Login"}
+            </Text>
           </TouchableOpacity>
 
           {/* Go to Register */}
           <TouchableOpacity
-            onPress={() => navigation.navigate("DoctorRegister")}
+            onPress={() => navigation.navigate("PatientRegister")}
             style={{ marginTop: 15 }}
+            disabled={loading}
           >
             <Text style={styles.link}>Don’t have an account? Register</Text>
           </TouchableOpacity>
         </Animated.View>
+
+        <Modal isVisible={isModalVisible} onBackdropPress={toggleModal}>
+          <View style={styles.modalContent}>
+            <MaterialCommunityIcons
+              name="alert-circle-outline"
+              size={50}
+              color="#FF6347"
+            />
+            <Text style={styles.modalText}>{modalMessage}</Text>
+            <TouchableOpacity onPress={onModalOkPress} style={styles.modalButton}>
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </LinearGradient>
   );
@@ -146,5 +234,31 @@ const styles = StyleSheet.create({
     color: "#11998e",
     textAlign: "center",
     fontSize: 14,
+  },
+  modalContent: {
+    backgroundColor: "white",
+    padding: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 20,
+    borderColor: "rgba(0, 0, 0, 0.1)",
+  },
+  modalText: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 15,
+    textAlign: "center",
+  },
+  modalButton: {
+    backgroundColor: "#11998e",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginTop: 10,
+  },
+  modalButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });
