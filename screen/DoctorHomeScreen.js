@@ -1,76 +1,54 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
-  Button,
   StyleSheet,
-  ActivityIndicator,
-  ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
   Dimensions,
   FlatList,
   SafeAreaView,
-} from 'react-native';
-import { Audio } from 'expo-av';
-import Animated, { FadeInDown, FadeInUp, FadeInLeft, FadeInRight } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
-import Modal from 'react-native-modal';
-import axios from 'axios';
+  Alert,
+} from "react-native";
+import { Audio } from "expo-av";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
+import axios from "axios";
 
-const screenWidth = Dimensions.get('window').width;
-const numColumns = 2;
-const cardMargin = 10;
-const cardWidth = (screenWidth - cardMargin * (numColumns * 2)) / numColumns;
+const screenWidth = Dimensions.get("window").width;
+const cardMargin = 12;
+const cardWidth = screenWidth - cardMargin * 4;
 
-const DATA_CARDS = [
-  { key: 'symptoms', title: 'Symptoms', icon: 'stethoscope' },
-  { key: 'prediction', title: 'Prediction', icon: 'heartbeat' },
-  { key: 'medicines', title: 'Medicines', icon: 'pills' },
+const DATA_BLOCKS = [
+  { key: "symptoms", title: "Symptoms", icon: "stethoscope" },
+  { key: "medicines", title: "Medicines", icon: "pills" },
+  { key: "summary", title: "Summary", icon: "file-alt" },
 ];
 
-const LoadingIndicator = () => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#4a90e2" />
-    <Text style={styles.loadingText}>Analyzing recording...</Text>
-  </View>
-);
-
-const DiagnosisCard = ({ item, data }) => (
-  <Animated.View style={styles.card} entering={FadeInUp.delay(item.delay || 0).duration(800)}>
-    <View style={styles.cardIcon}>
-      <FontAwesome5 name={item.icon} size={24} color="#3a7bd5" />
-    </View>
-    <Text style={styles.cardTitle}>{item.title}</Text>
-    <Text style={styles.cardData}>{data}</Text>
-  </Animated.View>
-);
-
-export default function DoctorHomeScreen({ navigation, onLogout }) {
+export default function AudioDiagnosisScreen() {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
-  const [isModalVisible, setModalVisible] = useState(false);
 
-  // To track mounting state - prevent state updates if unmounted
-  const isMounted = useRef(true);
-
+  // Request audio recording permission on mount
   useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
+    (async () => {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission required",
+          "Microphone permission is required to record audio."
+        );
+      }
+    })();
   }, []);
 
-  async function startRecording() {
+  // Start recording audio
+  const startRecording = async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== 'granted') {
-        setModalVisible(true);
-        return;
-      }
-      setIsRecording(true);
       setDiagnosis(null);
+      setIsRecording(true);
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -79,308 +57,233 @@ export default function DoctorHomeScreen({ navigation, onLogout }) {
         Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
       );
       setRecording(recording);
-    } catch (err) {
-      console.error('Failed to start recording', err);
+    } catch (error) {
+      Alert.alert("Error", "Failed to start recording: " + error.message);
+      setIsRecording(false);
     }
-  }
+  };
 
-  async function stopRecording() {
+  // Stop recording and send audio file to backend
+  const stopRecording = async () => {
     if (!recording) return;
-    setIsRecording(false);
-    setIsLoading(true);
     try {
+      setIsRecording(false);
+      setIsUploading(true);
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
-      console.log('Recording stopped and stored at', uri);
 
-      // Prepare FormData with the audio file to send to backend
-      // Replace below URL with your actual backend endpoint
+      if (!uri) {
+        Alert.alert("Error", "Recording URI not found.");
+        setIsUploading(false);
+        return;
+      }
+
+      // Prepare file for upload
+      const fileParts = uri.split("/");
+      const fileName = fileParts[fileParts.length - 1];
+      const fileType = "audio/m4a"; // or "audio/mp4" depending on platform
+
       const formData = new FormData();
-      formData.append('audio', {
+      formData.append("audioFile", {
         uri,
-        name: 'recording.wav',
-        type: 'audio/wav',
+        name: fileName,
+        type: fileType,
       });
 
-      // Example backend call - replace URL & headers as per your backend
-      // For demonstration, this request and result is simulated below
+      // Replace with your backend endpoint URL
+      const response = await axios.post(
+        "http://localhost:8080/api/audio/analyze",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
-      // Uncomment for real backend call:
-      /*
-      const response = await axios.post('http://YOUR_BACKEND_URL/api/diagnosis/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      const result = response.data;
-      */
-
-      // Simulated API delay & response:
-      await new Promise(res => setTimeout(res, 3000));
-      const result = {
-        symptoms: ['Chest pain', 'Shortness of breath'],
-        prediction: 'Heart Disease Positive',
-        medicines: ['Aspirin', 'Statins'],
-      };
-
-      if (isMounted.current) {
-        setDiagnosis(result);
+      if (response.status === 200 && response.data) {
+        setDiagnosis(response.data);
+      } else {
+        Alert.alert("Error", "Failed to get diagnosis from server.");
       }
     } catch (error) {
-      console.error('Error during stopRecording:', error);
-      if (isMounted.current) {
-        setDiagnosis(null);
-      }
-      alert('Failed to analyze recording. Please try again.');
-    }
-    if (isMounted.current) {
-      setIsLoading(false);
+      Alert.alert(
+        "Upload Error",
+        error.response?.data || error.message || "Something went wrong!"
+      );
+    } finally {
+      setIsUploading(false);
       setRecording(null);
     }
-  }
+  };
 
-  const renderCardItem = ({ item }) => {
-    let data = '';
-    if (!diagnosis) return null;
-    switch (item.key) {
-      case 'symptoms':
-        data = diagnosis.symptoms ? diagnosis.symptoms.join(', ') : '';
-        break;
-      case 'prediction':
-        data = diagnosis.prediction || '';
-        break;
-      case 'medicines':
-        data = diagnosis.medicines && diagnosis.medicines.length > 0 ? diagnosis.medicines.join(', ') : 'N/A';
-        break;
-      default:
-        data = '';
+  const renderBlock = ({ item }) => {
+    let content = diagnosis ? diagnosis[item.key] : null;
+
+    if (Array.isArray(content)) {
+      content = content.length > 0 ? content.join(", ") : "N/A";
+    } else if (!content) {
+      content = "N/A";
     }
-    return <DiagnosisCard item={item} data={data} />;
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardIconContainer}>
+          <FontAwesome5 name={item.icon} size={28} color="#5A81F8" />
+        </View>
+        <Text style={styles.cardTitle}>{item.title}</Text>
+        <Text style={styles.cardContent}>{content}</Text>
+      </View>
+    );
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <SafeAreaView>
-        <Text style={styles.title}>Doctor Dashboard</Text>
-        <Text style={styles.subtitle}>Start a new diagnosis by recording a patient's description.</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <Text style={styles.title}>Audio Diagnosis</Text>
+        <Text style={styles.subtitle}>
+          Record a patient's description and get diagnosis results.
+        </Text>
 
-        <View style={styles.actionSection}>
+        <View style={styles.recordSection}>
           <TouchableOpacity
-            style={styles.recordButton}
+            style={[styles.recordButtonShadow]}
             onPress={isRecording ? stopRecording : startRecording}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
+            disabled={isUploading}
           >
             <LinearGradient
-              colors={isRecording ? ['#e05247', '#e05247'] : ['#4a90e2', '#3477e2']}
-              style={styles.gradientFill}
+              colors={isRecording ? ["#e05247", "#d8433f"] : ["#5A81F8", "#3b62ce"]}
+              style={styles.recordButton}
+              start={{ x: 0.0, y: 0.0 }}
+              end={{ x: 1.0, y: 1.0 }}
             >
               <Ionicons
-                name={isRecording ? 'stop-circle-outline' : 'mic-outline'}
-                size={40}
+                name={isRecording ? "stop-circle" : "mic"}
+                size={50}
                 color="white"
               />
               <Text style={styles.recordButtonText}>
-                {isRecording ? 'Stop Recording' : 'Start Recording'}
+                {isRecording ? "Stop Recording" : "Start Recording"}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
+          {isUploading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#5A81F8" />
+              <Text style={styles.loadingText}>Analyzing audio...</Text>
+            </View>
+          )}
         </View>
-
-        {isLoading && <LoadingIndicator />}
 
         {diagnosis && (
-          <Animated.View entering={FadeInUp.duration(1000)} style={styles.diagnosisResults}>
-            <Text style={styles.resultsTitle}>Diagnosis Results</Text>
-            <FlatList
-              data={DATA_CARDS.map((item, index) => ({ ...item, delay: index * 200 }))}
-              renderItem={renderCardItem}
-              keyExtractor={item => item.key}
-              numColumns={numColumns}
-              scrollEnabled={false}
-              contentContainerStyle={{ alignItems: 'center' }}
-              showsVerticalScrollIndicator={false}
-            />
-          </Animated.View>
+          <FlatList
+            data={DATA_BLOCKS}
+            renderItem={renderBlock}
+            keyExtractor={(item) => item.key}
+            contentContainerStyle={styles.listContainer}
+          />
         )}
-      </SafeAreaView>
-
-      <View style={styles.bottomButtons}>
-        <TouchableOpacity onPress={() => navigation.navigate('DoctorRegister')} style={styles.linkButton}>
-          <Text style={styles.linkText}>Need an account? Register here</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutButtonText}>LOGOUT</Text>
-        </TouchableOpacity>
       </View>
-      <Modal isVisible={isModalVisible} onBackdropPress={() => setModalVisible(false)}>
-        <View style={styles.modalContent}>
-          <Ionicons name="mic-off-outline" size={50} color="#FF6347" />
-          <Text style={styles.modalText}>Permission to access microphone is required!</Text>
-          <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalButton}>
-            <Text style={styles.modalButtonText}>OK</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#f5f7fa",
+  },
   container: {
-    flexGrow: 1,
-    padding: 20,
-    backgroundColor: '#f5f7fa',
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 25,
   },
   title: {
-    fontSize: 34,
-    fontWeight: '700',
-    marginTop: 10,
-    marginBottom: 5,
-    textAlign: 'center',
-    color: '#333',
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
     marginBottom: 30,
   },
-  actionSection: {
-    alignItems: 'center',
-    marginBottom: 40,
+  recordSection: {
+    alignItems: "center",
+    marginBottom: 30,
+  },
+  recordButtonShadow: {
+    borderRadius: 999,
+    shadowColor: "#5A81F8",
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 15,
   },
   recordButton: {
+    width: 160,
+    height: 160,
     borderRadius: 999,
-    width: 150,
-    height: 150,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 6,
-  },
-  gradientFill: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    justifyContent: "center",
+    alignItems: "center",
   },
   recordButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 8,
+    marginTop: 12,
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
   loadingContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
+    marginTop: 20,
+    justifyContent: "center",
+    alignItems: "center",
   },
   loadingText: {
-    marginTop: 10,
-    color: '#4a90e2',
+    marginTop: 12,
+    color: "#5A81F8",
     fontSize: 16,
+    fontWeight: "600",
   },
-  diagnosisResults: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    marginBottom: 20,
-  },
-  resultsTitle: {
-    fontSize: 22,
-    fontWeight: '600',
-    marginBottom: 15,
-    color: '#333',
-    textAlign: 'center',
+  listContainer: {
+    paddingBottom: 30,
   },
   card: {
-    backgroundColor: '#eef3f7',
-    borderRadius: 15,
-    padding: 15,
-    margin: cardMargin,
+    backgroundColor: "#ebf0ff",
+    borderRadius: 18,
+    paddingVertical: 20,
+    paddingHorizontal: 25,
+    marginBottom: 20,
     width: cardWidth,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    alignItems: 'center',
-    marginBottom: 15,
+    alignSelf: "center",
+    elevation: 5,
+    shadowColor: "#5A81F8",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
   },
-  cardIcon: {
-    marginBottom: 8,
+  cardIconContainer: {
+    marginBottom: 12,
+    backgroundColor: "#d6e0ff",
+    padding: 14,
+    borderRadius: 50,
+    alignSelf: "center",
   },
   cardTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#2a3a8c",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  cardContent: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#444',
-    textAlign: 'center',
-    marginBottom: 5,
-  },
-  cardData: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
-  bottomButtons: {
-    marginTop: 30,
-    alignItems: 'center',
-  },
-  linkButton: {
-    marginBottom: 15,
-  },
-  linkText: {
-    color: '#4a90e2',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  logoutButton: {
-    backgroundColor: '#ff6347',
-    borderRadius: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 40,
-    shadowColor: '#ff6347',
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  logoutButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    padding: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  modalText: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  modalButton: {
-    backgroundColor: '#4a90e2',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginTop: 10,
-  },
-  modalButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: "#4e5a87",
+    textAlign: "center",
+    lineHeight: 22,
   },
 });

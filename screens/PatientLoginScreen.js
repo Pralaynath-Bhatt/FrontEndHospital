@@ -156,6 +156,13 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
           >
             <Text style={styles.link}>Don’t have an account? Register</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+              onPress={() => navigation.navigate('DoctorLogin')}
+              style={{ marginTop: 10 }}>
+              <Text style={[styles.link, { color: '#3a7bd5' }]}>
+                Are you a Doctor? <Text style={styles.boldLink}>Login Here</Text>
+              </Text>
+            </TouchableOpacity>
         </Animated.View>
 
         <Modal isVisible={isModalVisible} onBackdropPress={toggleModal}>
