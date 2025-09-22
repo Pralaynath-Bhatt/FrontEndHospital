@@ -7,8 +7,9 @@ import {
   StyleSheet,
   Animated,
   KeyboardAvoidingView,
-  Platform,
   SafeAreaView,
+  Platform,
+  Easing,
 } from 'react-native';
 import BASE_URL from "./Config";
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,32 +20,102 @@ import axios from 'axios';
 export default function DoctorLoginScreen({ navigation, onLogin }) {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [nameFocused, setNameFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
 
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
-  const [modalIcon,setModalIcon] = useState('');
-  const [modalColor,setModalColor]=useState('');
+  const [modalIcon, setModalIcon] = useState('');
+  const [modalColor, setModalColor] = useState('');
 
   const [loading, setLoading] = useState(false);
 
+  // Refs
+  const passwordInputRef = useRef(null);
+
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(60)).current;
+  const slideAnim = useRef(new Animated.Value(100)).current;
+  const headerScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const nameInputAnim = useRef(new Animated.Value(1)).current;
+  const passwordInputAnim = useRef(new Animated.Value(1)).current;
+  const buttonScaleAnim = useRef(new Animated.Value(1)).current;
+  const modalScaleAnim = useRef(new Animated.Value(0.7)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Initial entrance animations
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 1000,
+        easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }),
       Animated.spring(slideAnim, {
         toValue: 0,
-        friction: 5,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.spring(headerScaleAnim, {
+        toValue: 1,
+        friction: 6,
         useNativeDriver: true,
       }),
     ]).start();
   }, []);
+
+  // Input focus animations
+  const animateInputFocus = (anim, focused) => {
+    Animated.spring(anim, {
+      toValue: focused ? 1.02 : 1,
+      friction: 5,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Button press animation
+  const animateButtonPress = () => {
+    Animated.sequence([
+      Animated.timing(buttonScaleAnim, {
+        toValue: 0.95,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(buttonScaleAnim, {
+        toValue: 1,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Shake animation for errors
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 10, duration: 100, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 100, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 10, duration: 100, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
+    ]).start();
+  };
+
+  // Modal animations
+  useEffect(() => {
+    if (isModalVisible) {
+      Animated.spring(modalScaleAnim, {
+        toValue: 1,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(modalScaleAnim, {
+        toValue: 0.7,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isModalVisible]);
 
   const toggleModal = () => {
     setModalVisible(!isModalVisible);
@@ -53,6 +124,7 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
   const handleLoginPress = async () => {
     // Validate inputs
     if (!name.trim() || !password) {
+      triggerShake();
       setModalIcon('alert-circle-outline');
       setModalColor('#FF6347');
       setModalMessage('Please enter your name and password.');
@@ -61,6 +133,7 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
     }
 
     setLoading(true);
+    animateButtonPress();
 
     try {
       // Replace with your backend login API URL
@@ -72,20 +145,21 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
       // Assuming backend returns doctor data on success
       if (response.status === 200 && response.data) {
         setModalIcon('check-circle-outline');
-        setModalColor('#3bb63bff');
+        setModalColor('#4CAF50');
         setModalMessage("Login successful!");
         setModalVisible(true);
-        console.log("hiiiiiiiiiiiiiiiiiiiii");
-         // Trigger navigation/state update
+        // Trigger navigation/state update
       } else {
+        triggerShake();
         setModalIcon('alert-circle-outline');
         setModalColor('#FF6347');
         setModalMessage('Login failed. Please check your credentials.');
         setModalVisible(true);
       }
     } catch (error) {
+      triggerShake();
       if (error.response) {
-        const message = error.response.data || 'Login failed. Please check your credentials.';
+        const message = error.response.data?.message || 'Login failed. Please check your credentials.';
         setModalIcon('alert-circle-outline');
         setModalColor('#FF6347');
         setModalMessage(message);
@@ -99,6 +173,7 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
 
     setLoading(false);
   };
+
   const onModalOkPress = () => {
     setModalVisible(false);
     if (modalMessage === "Login successful!") {
@@ -108,26 +183,59 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
   };
 
   return (
-    <LinearGradient colors={['#3a7bd5', '#3a6073']} style={styles.gradient}>
+    <LinearGradient 
+      colors={['#667eea', '#764ba2']} 
+      style={styles.gradient}
+      start={{ x: 0, y: 0 }} 
+      end={{ x: 1, y: 1 }}
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}>
+        style={styles.container}
+      >
         <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
           <Animated.View
             style={[
               styles.card,
               {
                 opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
+                transform: [
+                  { translateY: slideAnim },
+                  { scale: headerScaleAnim }, // Apply scale to the whole card for subtle effect
+                ],
               },
-            ]}>
-            <Text style={styles.title}>Doctor Login</Text>
+            ]}
+          >
+            {/* Header Icon */}
+            <Animated.View
+              style={[
+                styles.headerIconContainer,
+                {
+                  transform: [{ scale: headerScaleAnim }],
+                },
+              ]}
+            >
+              <Ionicons name="medkit-outline" size={80} color="#667eea" />
+            </Animated.View>
 
-            <View style={styles.inputContainer}>
-              <Ionicons name="person-outline" size={20} color="#666" style={styles.icon} />
+            <Text style={styles.title}>Doctor Login</Text>
+            <Text style={styles.subtitle}>Welcome back! Please sign in to continue.</Text>
+
+            {/* Name Input */}
+            <Animated.View
+              style={[
+                styles.inputContainer,
+                {
+                  transform: [{ scale: nameInputAnim }],
+                  borderColor: nameFocused ? '#667eea' : '#ddd',
+                  backgroundColor: nameFocused ? '#f8f9ff' : '#f9f9f9',
+                },
+              ]}
+            >
+              <Ionicons name="person-outline" size={24} color={nameFocused ? '#667eea' : '#666'} style={styles.icon} />
               <TextInput
                 style={styles.input}
-                placeholder="Name"
+                placeholder="Full Name"
                 placeholderTextColor="#999"
                 value={name}
                 onChangeText={setName}
@@ -137,13 +245,31 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
                 onSubmitEditing={() => {
                   passwordInputRef.current?.focus();
                 }}
+                onFocus={() => {
+                  setNameFocused(true);
+                  animateInputFocus(nameInputAnim, true);
+                }}
+                onBlur={() => {
+                  setNameFocused(false);
+                  animateInputFocus(nameInputAnim, false);
+                }}
               />
-            </View>
+            </Animated.View>
 
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.icon} />
+            {/* Password Input */}
+            <Animated.View
+              style={[
+                styles.inputContainer,
+                {
+                  transform: [{ scale: passwordInputAnim }],
+                  borderColor: passwordFocused ? '#667eea' : '#ddd',
+                  backgroundColor: passwordFocused ? '#f8f9ff' : '#f9f9f9',
+                },
+              ]}
+            >
+              <Ionicons name="lock-closed-outline" size={24} color={passwordFocused ? '#667eea' : '#666'} style={styles.icon} />
               <TextInput
-                ref={(ref) => (passwordInputRef.current = ref)}
+                ref={passwordInputRef}
                 style={styles.input}
                 placeholder="Password"
                 placeholderTextColor="#999"
@@ -153,48 +279,115 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
                 editable={!loading}
                 returnKeyType="done"
                 onSubmitEditing={handleLoginPress}
+                onFocus={() => {
+                  setPasswordFocused(true);
+                  animateInputFocus(passwordInputAnim, true);
+                }}
+                onBlur={() => {
+                  setPasswordFocused(false);
+                  animateInputFocus(passwordInputAnim, false);
+                }}
               />
-            </View>
+            </Animated.View>
 
-            <TouchableOpacity
-              style={[styles.loginButton, loading && { opacity: 0.7 }]}
-              onPress={handleLoginPress}
-              disabled={loading}>
-              <Text style={styles.loginButtonText}>{loading ? 'Logging in...' : 'LOGIN'}</Text>
-            </TouchableOpacity>
+            {/* Login Button */}
+            <Animated.View
+              style={{
+                transform: [{ scale: buttonScaleAnim }],
+              }}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.loginButton,
+                  loading && { opacity: 0.7 },
+                ]}
+                onPress={handleLoginPress}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                {loading ? (
+                  <View style={styles.loadingContainer}>
+                    <Animated.View
+                      style={{
+                        transform: [{ rotate: shakeAnim }], // Subtle loading animation
+                      }}
+                    >
+                      <Ionicons name="ellipse" size={20} color="white" />
+                    </Animated.View>
+                    <Text style={styles.loginButtonText}>Signing In...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.buttonContent}>
+                    <Text style={styles.loginButtonText}>LOGIN</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
 
+            {/* Links */}
             <TouchableOpacity
               onPress={() => navigation.navigate('DoctorRegister')}
-              style={{ marginTop: 20 }}>
+              style={styles.linkContainer}
+              activeOpacity={0.7}
+            >
               <Text style={styles.link}>
-                Don’t have an account? <Text style={styles.boldLink}>Register</Text>
+                Don’t have an account? <Text style={styles.boldLink}>Register Now</Text>
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => navigation.navigate('PatientLogin')}
-              style={{ marginTop: 10 }}>
-              <Text style={[styles.link, { color: '#3a7bd5' }]}>
+              style={styles.linkContainer}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.link, { color: '#333' }]}>
                 Are you a Patient? <Text style={styles.boldLink}>Login Here</Text>
               </Text>
             </TouchableOpacity>
           </Animated.View>
         </SafeAreaView>
-        <Modal isVisible={isModalVisible} onBackdropPress={toggleModal}>
-          <View style={styles.modalContent}>
-            <MaterialCommunityIcons name={modalIcon} size={50} color={modalColor} />
-            <Text style={styles.modalText}>{modalMessage}</Text>
-            <TouchableOpacity onPress={onModalOkPress} style={styles.modalButton}>
+
+        {/* Enhanced Modal */}
+        <Modal 
+          isVisible={isModalVisible} 
+          onBackdropPress={toggleModal}
+          animationIn="zoomIn"
+          animationOut="zoomOut"
+          backdropOpacity={0.5}
+          style={styles.modal}
+        >
+          <Animated.View
+            style={[
+              styles.modalContent,
+              {
+                transform: [{ scale: modalScaleAnim }],
+              },
+            ]}
+          >
+            <Animated.View
+              style={{
+                transform: [{ translateX: shakeAnim }], // Apply shake to modal icon
+              }}
+            >
+              <MaterialCommunityIcons name={modalIcon} size={60} color={modalColor} />
+            </Animated.View>
+            <Text style={[styles.modalText, { color: modalColor }]}>{modalMessage}</Text>
+            <TouchableOpacity 
+              onPress={onModalOkPress} 
+              style={[
+                styles.modalButton,
+                { backgroundColor: modalColor }
+              ]}
+              activeOpacity={0.8}
+            >
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </Modal>
       </KeyboardAvoidingView>
     </LinearGradient>
   );
 }
-
-const passwordInputRef = React.createRef();
 
 const styles = StyleSheet.create({
   gradient: {
@@ -203,93 +396,145 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   card: {
-    backgroundColor: 'white',
-    borderRadius: 25,
-    padding: 30,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 30,
+    padding: 40,
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 6,
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+    alignItems: 'center',
+  },
+  headerIconContainer: {
+    marginBottom: 20,
+    padding: 20,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    borderRadius: 50,
   },
   title: {
-    fontSize: 32,
-    fontWeight: '700',
-    marginBottom: 20,
+    fontSize: 36,
+    fontWeight: '800',
+    marginBottom: 8,
     textAlign: 'center',
     color: '#333',
+    letterSpacing: 0.5,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 40,
+    fontWeight: '500',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 15,
-    marginBottom: 15,
-    paddingHorizontal: 15,
+    borderWidth: 2,
+    borderRadius: 20,
+    marginBottom: 20,
+    paddingHorizontal: 20,
     backgroundColor: '#f9f9f9',
+    width: '100%',
+    transition: 'border 0.3s ease', // For native feel
   },
   icon: {
-    marginRight: 10,
+    marginRight: 15,
   },
   input: {
     flex: 1,
-    height: 50,
+    height: 55,
+    fontSize: 16,
     color: '#333',
+    fontWeight: '500',
   },
   loginButton: {
-    backgroundColor: '#3a7bd5',
-    borderRadius: 15,
-    paddingVertical: 15,
+    backgroundColor: '#667eea',
+    borderRadius: 20,
+    paddingVertical: 18,
     alignItems: 'center',
+    width: '100%',
     marginTop: 10,
-    shadowColor: '#3a7bd5',
+    shadowColor: '#667eea',
     shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+    justifyContent: 'center',
+  },
+  buttonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loginButtonText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  linkContainer: {
+    marginTop: 20,
+    paddingVertical: 10,
   },
   link: {
     textAlign: 'center',
     color: '#666',
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '500',
   },
   boldLink: {
-    fontWeight: 'bold',
-    color: '#3a6073',
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  modal: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 0,
   },
   modalContent: {
     backgroundColor: 'white',
-    padding: 22,
+    padding: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 20,
+    borderRadius: 25,
+    borderWidth: 1,
     borderColor: 'rgba(0, 0, 0, 0.1)',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+    minWidth: 300,
   },
   modalText: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 15,
+    marginVertical: 20,
     textAlign: 'center',
+    lineHeight: 24,
   },
   modalButton: {
-    backgroundColor: '#3a7bd5',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginTop: 10,
+    borderRadius: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   modalButtonText: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '700',
   },
 });
