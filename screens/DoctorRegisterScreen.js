@@ -48,7 +48,6 @@ export default function DoctorRegisterScreen({ navigation }) {
   const confirmPasswordInputAnim = useRef(new Animated.Value(1)).current;
   const buttonScaleAnim = useRef(new Animated.Value(1)).current;
   const modalScaleAnim = useRef(new Animated.Value(0.7)).current;
-  const shakeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // Initial entrance animations
@@ -98,14 +97,12 @@ export default function DoctorRegisterScreen({ navigation }) {
   };
 
   // Shake animation for errors
-  const triggerShake = () => {
-    Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 10, duration: 100, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -10, duration: 100, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 10, duration: 100, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
-    ]).start();
-  };
+const triggerShake = () => {
+  // Optional: Implement shake animation on inputs or just a placeholder
+  // For now, you can leave it empty or add a console log
+  // Or animate nameInputAnim and passwordInputAnim for shake effect if you want
+  console.log("Shake triggered");
+};
 
   // Modal animations
   useEffect(() => {
@@ -429,14 +426,9 @@ export default function DoctorRegisterScreen({ navigation }) {
               >
                 {loading ? (
                   <View style={styles.loadingContainer}>
-                    <Animated.View
-                      style={{
-                        transform: [{ rotate: shakeAnim }], // Subtle loading animation
-                      }}
-                    >
+                    
                       <Ionicons name="ellipse" size={20} color="white" />
-                    </Animated.View>
-                    <Text style={styles.registerText}>Registering...</Text>
+                                       <Text style={styles.registerText}>Registering...</Text>
                   </View>
                 ) : (
                   <View style={styles.buttonContent}>
@@ -476,13 +468,7 @@ export default function DoctorRegisterScreen({ navigation }) {
               },
             ]}
           >
-            <Animated.View
-              style={{
-                transform: [{ translateX: shakeAnim }], // Apply shake to modal icon
-              }}
-            >
               <MaterialCommunityIcons name={modalIcon} size={60} color={modalColor} />
-            </Animated.View>
             <Text style={[styles.modalText, { color: modalColor }]}>{modalMessage}</Text>
             <TouchableOpacity 
               onPress={onModalOkPress} 
