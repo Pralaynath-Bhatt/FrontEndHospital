@@ -91,7 +91,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
     setModalVisible(false);
     if (modalMessage === "Login successful!") {
       if (onLogin) onLogin();
-      navigation.replace("PatientHome"); // or your app's main patient screen
+      navigation.replace("PatientHomeScreen"); // or your app's main patient screen
     }
   };
 

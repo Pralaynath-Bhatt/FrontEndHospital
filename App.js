@@ -27,7 +27,7 @@ export default function App() {
     // Reset navigation to home screen
     navigation.reset({
       index: 0,
-      routes: [{ name: type === "doctor" ? "DoctorHome" : "PatientHome" }],
+      routes: [{ name: type === "doctor" ? "DoctorHomeScreen" : "PatientHomeScreen" }],
     });
   };
 

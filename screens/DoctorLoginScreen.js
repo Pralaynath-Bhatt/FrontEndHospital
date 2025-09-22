@@ -22,6 +22,8 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
 
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
+  const [modalIcon,setModalIcon] = useState('');
+  const [modalColor,setModalColor]=useState('');
 
   const [loading, setLoading] = useState(false);
 
@@ -51,6 +53,8 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
   const handleLoginPress = async () => {
     // Validate inputs
     if (!name.trim() || !password) {
+      setModalIcon('alert-circle-outline');
+      setModalColor('#FF6347');
       setModalMessage('Please enter your name and password.');
       setModalVisible(true);
       return;
@@ -67,22 +71,40 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
 
       // Assuming backend returns doctor data on success
       if (response.status === 200 && response.data) {
-        onLogin(); // Trigger navigation/state update
+        setModalIcon('check-circle-outline');
+        setModalColor('#3bb63bff');
+        setModalMessage("Login successful!");
+        setModalVisible(true);
+        console.log("hiiiiiiiiiiiiiiiiiiiii");
+         // Trigger navigation/state update
       } else {
+        setModalIcon('alert-circle-outline');
+        setModalColor('#FF6347');
         setModalMessage('Login failed. Please check your credentials.');
         setModalVisible(true);
       }
     } catch (error) {
       if (error.response) {
         const message = error.response.data || 'Login failed. Please check your credentials.';
+        setModalIcon('alert-circle-outline');
+        setModalColor('#FF6347');
         setModalMessage(message);
       } else {
+        setModalIcon('alert-circle-outline');
+        setModalColor('#FF6347');
         setModalMessage('Network error. Please try again later.');
       }
       setModalVisible(true);
     }
 
     setLoading(false);
+  };
+  const onModalOkPress = () => {
+    setModalVisible(false);
+    if (modalMessage === "Login successful!") {
+      if (onLogin) onLogin();
+      navigation.replace("DoctorHomeScreen"); // or your app's main patient screen
+    }
   };
 
   return (
@@ -160,9 +182,9 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
         </SafeAreaView>
         <Modal isVisible={isModalVisible} onBackdropPress={toggleModal}>
           <View style={styles.modalContent}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={50} color="#FF6347" />
+            <MaterialCommunityIcons name={modalIcon} size={50} color={modalColor} />
             <Text style={styles.modalText}>{modalMessage}</Text>
-            <TouchableOpacity onPress={toggleModal} style={styles.modalButton}>
+            <TouchableOpacity onPress={onModalOkPress} style={styles.modalButton}>
               <Text style={styles.modalButtonText}>OK</Text>
             </TouchableOpacity>
           </View>
