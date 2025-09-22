@@ -10,6 +10,7 @@ import {
   Platform,
   SafeAreaView,
 } from 'react-native';
+import BASE_URL from "./Config";
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Modal from 'react-native-modal';
@@ -59,7 +60,7 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
 
     try {
       // Replace with your backend login API URL
-      const response = await axios.post('http://localhost:8080/api/doctor/login', {
+      const response = await axios.post(`${BASE_URL}/api/doctor/login`, {
         name: name.trim(),
         password,
       });

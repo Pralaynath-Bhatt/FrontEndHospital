@@ -13,6 +13,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Modal from "react-native-modal";
 import axios from "axios";
+import BASE_URL from "./Config";
 
 export default function PatientLoginScreen({ navigation, onLogin }) {
   const [name, setName] = useState("");
@@ -55,7 +56,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
     setLoading(true);
     try {
       // Replace with your actual backend API endpoint
-      const response = await axios.post("http://localhost:8080/api/patient/login", {
+      const response = await axios.post(`${BASE_URL}/api/patient/login`, {
         name: name.trim(),
         password,
       });

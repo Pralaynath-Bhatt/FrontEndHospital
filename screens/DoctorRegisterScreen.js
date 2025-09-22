@@ -10,6 +10,7 @@ import {
   Platform,
   SafeAreaView,
 } from "react-native";
+import BASE_URL from "./Config";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Modal from "react-native-modal";
@@ -75,7 +76,7 @@ export default function PatientRegisterScreen({ navigation }) {
     try {
       // Replace below URL with your real backend endpoint!!!
       const response = await axios.post(
-        "http://localhost:8080/api/doctor/register",
+        `${BASE_URL}/api/doctor/register`,
         {
           name: name.trim(),
           email: email.trim(),

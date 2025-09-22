@@ -1,73 +1,55 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
-  ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
   Dimensions,
   FlatList,
   SafeAreaView,
+  Alert,
 } from "react-native";
+import BASE_URL from "./Config";
 import { Audio } from "expo-av";
-import Animated, {
-  FadeInUp,
-  FadeInDown,
-  FadeInLeft,
-  FadeInRight,
-} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
-import Modal from "react-native-modal";
+import axios from "axios";
 
 const screenWidth = Dimensions.get("window").width;
-const numColumns = 2;
 const cardMargin = 12;
-const cardWidth = (screenWidth - cardMargin * (numColumns * 2 + 2)) / numColumns;
+const cardWidth = screenWidth - cardMargin * 4;
 
-const DATA_CARDS = [
+const DATA_BLOCKS = [
   { key: "symptoms", title: "Symptoms", icon: "stethoscope" },
-  { key: "prediction", title: "Prediction", icon: "heartbeat" },
   { key: "medicines", title: "Medicines", icon: "pills" },
+  { key: "summary", title: "Summary", icon: "file-alt" },
 ];
 
-const LoadingIndicator = () => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color="#5A81F8" />
-    <Text style={styles.loadingText}>Analyzing recording...</Text>
-  </View>
-);
-
-const DiagnosisCard = ({ item, data }) => (
-  <Animated.View
-    style={styles.card}
-    entering={FadeInUp.delay(item.delay || 0).duration(700)}
-  >
-    <View style={styles.cardIconContainer}>
-      <FontAwesome5 name={item.icon} size={28} color="#5A81F8" />
-    </View>
-    <Text style={styles.cardTitle}>{item.title}</Text>
-    <Text style={styles.cardData}>{data}</Text>
-  </Animated.View>
-);
-
-export default function DoctorHomeScreen({ navigation, onLogout }) {
+export default function AudioDiagnosisScreen() {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
-  const [isModalVisible, setModalVisible] = useState(false);
 
-  async function startRecording() {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== "granted") {
-        setModalVisible(true);
-        return;
+  // Request audio recording permission on mount
+  useEffect(() => {
+    (async () => {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission required",
+          "Microphone permission is required to record audio."
+        );
       }
-      setIsRecording(true);
+    })();
+  }, []);
+
+  // Start recording audio
+  const startRecording = async () => {
+    try {
       setDiagnosis(null);
+      setIsRecording(true);
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -76,68 +58,100 @@ export default function DoctorHomeScreen({ navigation, onLogout }) {
         Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
       );
       setRecording(recording);
-    } catch (err) {
-      console.error("Failed to start recording", err);
+    } catch (error) {
+      Alert.alert("Error", "Failed to start recording: " + error.message);
+      setIsRecording(false);
     }
-  }
+  };
 
-  async function stopRecording() {
+  // Stop recording and send audio file to backend
+  const stopRecording = async () => {
     if (!recording) return;
-    setIsRecording(false);
-    setIsLoading(true);
-    await recording.stopAndUnloadAsync();
-    const uri = recording.getURI();
-    console.log("Recording stopped and stored at", uri);
+    try {
+      setIsRecording(false);
+      setIsUploading(true);
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
 
-    // Simulate API call and analysis
-    await new Promise((res) => setTimeout(res, 3000));
-    setDiagnosis({
-      symptoms: ["Chest pain", "Shortness of breath"],
-      prediction: "Heart Disease Positive",
-      medicines: ["Aspirin", "Statins"],
-    });
+      if (!uri) {
+        Alert.alert("Error", "Recording URI not found.");
+        setIsUploading(false);
+        return;
+      }
 
-    setIsLoading(false);
-    setRecording(null);
-  }
+      // Prepare file for upload
+      const fileParts = uri.split("/");
+      const fileName = fileParts[fileParts.length - 1];
+      const fileType = "audio/m4a"; // or "audio/mp4" depending on platform
 
-  const renderCardItem = ({ item }) => {
-    let data;
-    switch (item.key) {
-      case "symptoms":
-        data = diagnosis.symptoms.join(", ");
-        break;
-      case "prediction":
-        data = diagnosis.prediction;
-        break;
-      case "medicines":
-        data =
-          diagnosis.medicines.length > 0
-            ? diagnosis.medicines.join(", ")
-            : "N/A";
-        break;
-      default:
-        data = "";
+      const formData = new FormData();
+      formData.append("audioFile", {
+        uri,
+        name: fileName,
+        type: fileType,
+      });
+
+      // Replace with your backend endpoint URL
+      const response = await axios.post(
+        `${BASE_URL}/api/audio/analyze`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (response.status === 200 && response.data) {
+        setDiagnosis(response.data);
+      } else {
+        Alert.alert("Error", "Failed to get diagnosis from server.");
+      }
+    } catch (error) {
+      Alert.alert(
+        "Upload Error",
+        error.response?.data || error.message || "Something went wrong!"
+      );
+    } finally {
+      setIsUploading(false);
+      setRecording(null);
     }
-    return <DiagnosisCard item={item} data={data} />;
+  };
+
+  const renderBlock = ({ item }) => {
+    let content = diagnosis ? diagnosis[item.key] : null;
+
+    if (Array.isArray(content)) {
+      content = content.length > 0 ? content.join(", ") : "N/A";
+    } else if (!content) {
+      content = "N/A";
+    }
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardIconContainer}>
+          <FontAwesome5 name={item.icon} size={28} color="#5A81F8" />
+        </View>
+        <Text style={styles.cardTitle}>{item.title}</Text>
+        <Text style={styles.cardContent}>{content}</Text>
+      </View>
+    );
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.title}>Doctor Dashboard</Text>
+      <View style={styles.container}>
+        <Text style={styles.title}>Audio Diagnosis</Text>
         <Text style={styles.subtitle}>
-          Start a new diagnosis by recording a patient's description.
+          Record a patient's description and get diagnosis results.
         </Text>
 
-        <View style={styles.actionSection}>
+        <View style={styles.recordSection}>
           <TouchableOpacity
-            activeOpacity={0.85}
             style={[styles.recordButtonShadow]}
             onPress={isRecording ? stopRecording : startRecording}
+            activeOpacity={0.85}
+            disabled={isUploading}
           >
             <LinearGradient
               colors={isRecording ? ["#e05247", "#d8433f"] : ["#5A81F8", "#3b62ce"]}
@@ -155,64 +169,24 @@ export default function DoctorHomeScreen({ navigation, onLogout }) {
               </Text>
             </LinearGradient>
           </TouchableOpacity>
+          {isUploading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#5A81F8" />
+              <Text style={styles.loadingText}>Analyzing audio...</Text>
+            </View>
+          )}
         </View>
-
-        {isLoading && <LoadingIndicator />}
 
         {diagnosis && (
-          <Animated.View entering={FadeInUp.duration(1000)} style={styles.diagnosisResults}>
-            <Text style={styles.resultsTitle}>Diagnosis Results</Text>
-            <FlatList
-              data={DATA_CARDS.map((item, index) => ({ ...item, delay: index * 250 }))}
-              renderItem={renderCardItem}
-              keyExtractor={(item) => item.key}
-              numColumns={numColumns}
-              scrollEnabled={false}
-              contentContainerStyle={styles.flatListContainer}
-              showsVerticalScrollIndicator={false}
-            />
-          </Animated.View>
+          <FlatList
+            data={DATA_BLOCKS}
+            renderItem={renderBlock}
+            keyExtractor={(item) => item.key}
+            contentContainerStyle={styles.listContainer}
+          />
         )}
-
-        <View style={styles.bottomButtons}>
-          <TouchableOpacity
-            onPress={() => navigation.navigate("DoctorRegister")}
-            style={styles.linkButton}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.linkText}>Need an account? Register here</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={onLogout}
-            style={styles.logoutButton}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.logoutButtonText}>LOGOUT</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Modal
-          isVisible={isModalVisible}
-          onBackdropPress={() => setModalVisible(false)}
-          animationIn="fadeIn"
-          animationOut="fadeOut"
-          backdropTransitionOutTiming={0}
-        >
-          <View style={styles.modalContent}>
-            <Ionicons name="mic-off" size={60} color="#FF6347" />
-            <Text style={styles.modalText}>
-              Permission to access microphone is required!
-            </Text>
-            <TouchableOpacity
-              onPress={() => setModalVisible(false)}
-              style={styles.modalButton}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modalButtonText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </Modal>
-      </ScrollView>
+        
+      </View>
     </SafeAreaView>
   );
 }
@@ -223,27 +197,26 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f7fa",
   },
   container: {
-    flexGrow: 1,
-    paddingVertical: 25,
+    flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 25,
   },
   title: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: "800",
-    marginBottom: 6,
-    textAlign: "center",
     color: "#333",
+    textAlign: "center",
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 16,
     color: "#666",
     textAlign: "center",
-    marginBottom: 40,
-    lineHeight: 22,
+    marginBottom: 30,
   },
-  actionSection: {
+  recordSection: {
     alignItems: "center",
-    marginBottom: 45,
+    marginBottom: 30,
   },
   recordButtonShadow: {
     borderRadius: 999,
@@ -268,9 +241,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   loadingContainer: {
+    marginTop: 20,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 30,
   },
   loadingText: {
     marginTop: 12,
@@ -278,115 +251,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  diagnosisResults: {
-    backgroundColor: "white",
-    borderRadius: 22,
-    paddingVertical: 25,
-    paddingHorizontal: 20,
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    marginBottom: 20,
-  },
-  resultsTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 20,
-    color: "#333",
-    textAlign: "center",
-  },
-  flatListContainer: {
-    alignItems: "center",
+  listContainer: {
+    paddingBottom: 30,
   },
   card: {
     backgroundColor: "#ebf0ff",
     borderRadius: 18,
     paddingVertical: 20,
-    paddingHorizontal: 15,
-    margin: cardMargin,
+    paddingHorizontal: 25,
+    marginBottom: 20,
     width: cardWidth,
+    alignSelf: "center",
     elevation: 5,
     shadowColor: "#5A81F8",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
-    alignItems: "center",
-    marginBottom: 20,
   },
   cardIconContainer: {
     marginBottom: 12,
     backgroundColor: "#d6e0ff",
-    padding: 12,
+    padding: 14,
     borderRadius: 50,
+    alignSelf: "center",
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "700",
     color: "#2a3a8c",
     marginBottom: 8,
     textAlign: "center",
   },
-  cardData: {
-    fontSize: 15,
+  cardContent: {
+    fontSize: 16,
     color: "#4e5a87",
     textAlign: "center",
-    lineHeight: 20,
-  },
-  bottomButtons: {
-    marginTop: 40,
-    alignItems: "center",
-  },
-  linkButton: {
-    marginBottom: 18,
-  },
-  linkText: {
-    color: "#5A81F8",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  logoutButton: {
-    backgroundColor: "#e05247",
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 55,
-    shadowColor: "#e05247",
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 8,
-  },
-  logoutButtonText: {
-    color: "white",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  modalContent: {
-    backgroundColor: "white",
-    padding: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 22,
-    borderColor: "rgba(0, 0, 0, 0.1)",
-  },
-  modalText: {
-    fontSize: 19,
-    fontWeight: "600",
-    marginVertical: 18,
-    textAlign: "center",
-    color: "#333",
-  },
-  modalButton: {
-    backgroundColor: "#5A81F8",
-    borderRadius: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    marginTop: 10,
-  },
-  modalButtonText: {
-    color: "white",
-    fontSize: 17,
-    fontWeight: "700",
+    lineHeight: 22,
   },
 });

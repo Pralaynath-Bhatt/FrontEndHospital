@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,11 @@ import {
   FlatList,
   SafeAreaView,
   Alert,
+  ScrollView,
 } from "react-native";
+import BASE_URL from "../screens/Config"; // Ensure this path is correct
 import { Audio } from "expo-av";
+import { useNavigation } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import axios from "axios";
@@ -25,13 +28,14 @@ const DATA_BLOCKS = [
   { key: "summary", title: "Summary", icon: "file-alt" },
 ];
 
-export default function AudioDiagnosisScreen() {
+export default function DoctorHomeScreen({ onLogout }) {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
 
-  // Request audio recording permission on mount
+  const navigation = useNavigation();
+
   useEffect(() => {
     (async () => {
       const { status } = await Audio.requestPermissionsAsync();
@@ -44,7 +48,6 @@ export default function AudioDiagnosisScreen() {
     })();
   }, []);
 
-  // Start recording audio
   const startRecording = async () => {
     try {
       setDiagnosis(null);
@@ -63,7 +66,6 @@ export default function AudioDiagnosisScreen() {
     }
   };
 
-  // Stop recording and send audio file to backend
   const stopRecording = async () => {
     if (!recording) return;
     try {
@@ -78,10 +80,9 @@ export default function AudioDiagnosisScreen() {
         return;
       }
 
-      // Prepare file for upload
       const fileParts = uri.split("/");
       const fileName = fileParts[fileParts.length - 1];
-      const fileType = "audio/m4a"; // or "audio/mp4" depending on platform
+      const fileType = "audio/m4a";
 
       const formData = new FormData();
       formData.append("audioFile", {
@@ -90,9 +91,8 @@ export default function AudioDiagnosisScreen() {
         type: fileType,
       });
 
-      // Replace with your backend endpoint URL
       const response = await axios.post(
-        "http://localhost:8080/api/audio/analyze",
+        `${BASE_URL}/api/audio/analyze`,
         formData,
         {
           headers: {
@@ -139,7 +139,7 @@ export default function AudioDiagnosisScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Audio Diagnosis</Text>
         <Text style={styles.subtitle}>
           Record a patient's description and get diagnosis results.
@@ -147,13 +147,15 @@ export default function AudioDiagnosisScreen() {
 
         <View style={styles.recordSection}>
           <TouchableOpacity
-            style={[styles.recordButtonShadow]}
+            style={styles.recordButtonShadow}
             onPress={isRecording ? stopRecording : startRecording}
             activeOpacity={0.85}
             disabled={isUploading}
           >
             <LinearGradient
-              colors={isRecording ? ["#e05247", "#d8433f"] : ["#5A81F8", "#3b62ce"]}
+              colors={
+                isRecording ? ["#e05247", "#d8433f"] : ["#5A81F8", "#3b62ce"]
+              }
               style={styles.recordButton}
               start={{ x: 0.0, y: 0.0 }}
               end={{ x: 1.0, y: 1.0 }}
@@ -168,6 +170,7 @@ export default function AudioDiagnosisScreen() {
               </Text>
             </LinearGradient>
           </TouchableOpacity>
+
           {isUploading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#5A81F8" />
@@ -182,9 +185,18 @@ export default function AudioDiagnosisScreen() {
             renderItem={renderBlock}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.listContainer}
+            scrollEnabled={false}
           />
         )}
-      </View>
+
+        {/* LOGOUT BUTTON */}
+        <TouchableOpacity
+          onPress={() => onLogout(navigation)}
+          style={styles.logoutButton}
+        >
+          <Text style={styles.logoutButtonText}>LOGOUT</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -195,9 +207,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f7fa",
   },
   container: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 25,
+    paddingBottom: 50,
   },
   title: {
     fontSize: 32,
@@ -250,7 +262,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   listContainer: {
-    paddingBottom: 30,
+    paddingBottom: 20,
   },
   card: {
     backgroundColor: "#ebf0ff",
@@ -285,5 +297,25 @@ const styles = StyleSheet.create({
     color: "#4e5a87",
     textAlign: "center",
     lineHeight: 22,
+  },
+  logoutButton: {
+    backgroundColor: "#e05247",
+    borderRadius: 15,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    alignItems: "center",
+    marginTop: 30,
+    alignSelf: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  logoutButtonText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "bold",
+    letterSpacing: 1,
   },
 });

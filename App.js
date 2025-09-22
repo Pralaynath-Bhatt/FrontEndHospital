@@ -10,7 +10,7 @@ import DoctorLoginScreen from "./screens/DoctorLoginScreen";
 import DoctorRegisterScreen from "./screens/DoctorRegisterScreen";
 import PatientLoginScreen from "./screens/PatientLoginScreen";
 import PatientRegisterScreen from "./screens/PatientRegisterScreen";
-import DoctorHomeScreen from "./screen/DoctorHomeScreen";
+import DoctorHomeScreen from "./screens/DoctorHomeScreen";
 import PatientHomeScreen from "./screens/PatientHomeScreen";
 
 const Stack = createNativeStackNavigator();
