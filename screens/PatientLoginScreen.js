@@ -133,7 +133,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
 
     try {
       // Replace with your actual backend API endpoint
-      const response = await axios.post(`${BASE_URL}/api/patient/login`, {
+      const response = await axios.post(`${BASE_URL}:8080/api/patient/login`, {
         name: name.trim(),
         password,
       });

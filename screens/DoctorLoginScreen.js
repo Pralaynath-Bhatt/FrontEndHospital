@@ -134,7 +134,7 @@ export default function DoctorLoginScreen({ navigation, onLogin }) {
 
     try {
       // Replace with your backend login API URL
-      const response = await axios.post(`${BASE_URL}/api/doctor/login`, {
+      const response = await axios.post(`${BASE_URL}:8080/api/doctor/login`, {
         name: name.trim(),
         password,
       });

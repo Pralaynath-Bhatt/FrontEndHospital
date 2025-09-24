@@ -163,7 +163,7 @@ export default function PatientRegisterScreen({ navigation }) {
     try {
       // Replace below URL with your real backend endpoint!!!
       const response = await axios.post(
-        `${BASE_URL}/api/patient/register`,
+        `${BASE_URL}:8080/api/patient/register`,
         {
           name: name.trim(),
           email: email.trim(),

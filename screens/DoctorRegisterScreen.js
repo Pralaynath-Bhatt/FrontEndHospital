@@ -162,7 +162,7 @@ const triggerShake = () => {
     try {
       // Replace below URL with your real backend endpoint!!!
       const response = await axios.post(
-        `${BASE_URL}/api/doctor/register`,
+        `${BASE_URL}:8080/api/doctor/register`,
         {
           name: name.trim(),
           email: email.trim(),

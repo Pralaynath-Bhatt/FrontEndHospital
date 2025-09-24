@@ -10,7 +10,9 @@ import {
   SafeAreaView,
   Alert,
   TextInput,
+  ScrollView, // NEW: Added for scrolling the long form
 } from "react-native";
+import { Picker } from "@react-native-picker/picker"; // NEW: For dropdowns
 import BASE_URL from "./Config";
 import { Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
@@ -33,6 +35,23 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const [isUploading, setIsUploading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
   const [searchText, setSearchText] = useState("");
+
+  // NEW: Heart prediction form state
+  const [formData, setFormData] = useState({
+    Age: "",
+    Sex: "M",
+    ChestPainType: "ATA",
+    RestingBP: "",
+    Cholesterol: "",
+    FastingBS: "0",
+    RestingECG: "Normal",
+    MaxHR: "",
+    ExerciseAngina: "N",
+    Oldpeak: "",
+    ST_Slope: "Up",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [heartResult, setHeartResult] = useState(null);
 
   // Request audio recording permission on mount
   useEffect(() => {
@@ -57,7 +76,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       setDiagnosis(null);
       setIsUploading(true);
       const response = await axios.post(
-        `${BASE_URL}/api/text/analyze`,
+        `${BASE_URL}:8080/api/text/analyze`,
         { text: searchText },
         {
           headers: {
@@ -78,6 +97,71 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       );
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // NEW: Handle heart form input changes
+  const handleInputChange = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Clear result on input change
+    if (heartResult) setHeartResult(null);
+  };
+
+  // NEW: Validate and submit heart prediction
+  const handleHeartSubmit = async () => {
+    // Basic validation
+    const requiredFields = ["Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak"];
+    for (let field of requiredFields) {
+      if (!formData[field] || isNaN(parseFloat(formData[field]))) {
+        Alert.alert("Error", `${field} is required and must be a number.`);
+        return;
+      }
+    }
+    if (parseInt(formData.FastingBS) !== 0 && parseInt(formData.FastingBS) !== 1) {
+      Alert.alert("Error", "FastingBS must be 0 or 1.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setHeartResult(null);
+
+      // Prepare data as list with one object
+      const patientData = [
+        {
+          Age: parseInt(formData.Age),
+          Sex: formData.Sex,
+          ChestPainType: formData.ChestPainType,
+          RestingBP: parseInt(formData.RestingBP),
+          Cholesterol: parseInt(formData.Cholesterol),
+          FastingBS: parseInt(formData.FastingBS),
+          RestingECG: formData.RestingECG,
+          MaxHR: parseInt(formData.MaxHR),
+          ExerciseAngina: formData.ExerciseAngina,
+          Oldpeak: parseFloat(formData.Oldpeak),
+          ST_Slope: formData.ST_Slope,
+        },
+      ];
+      
+  
+      const response = await axios.post(`${BASE_URL}:5000/predict`, patientData, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200 && response.data) {
+        setHeartResult(response.data[0]);
+      } else {
+        Alert.alert("Error", "Failed to get prediction from server.");
+      }
+    } catch (error) {
+      Alert.alert(
+        "Submission Error",
+        error.response?.data?.error || error.message || "Something went wrong!"
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -129,7 +213,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
       // Replace with your backend endpoint URL
       const response = await axios.post(
-        `${BASE_URL}/api/audio/analyze`,
+        `${BASE_URL}:8080/api/audio/analyze`,
         formData,
         {
           headers: {
@@ -176,12 +260,13 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Audio Diagnosis</Text>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}> {/* UPDATED: Wrapped in ScrollView for form scrolling */}
+        <Text style={styles.title}>Diagnosis Tools</Text> {/* UPDATED: Title to reflect multiple tools */}
         <Text style={styles.subtitle}>
-          Record a patient's description and get diagnosis results.
+          Record a patient's description, search text, or predict heart disease risk.
         </Text>
 
+        {/* EXISTING: Text Search Section */}
         <View style={styles.searchSection}>
           <View style={styles.searchContainer}>
             <TextInput
@@ -212,6 +297,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           </View>
         </View>
 
+        {/* EXISTING: Audio Recording Section */}
         <View style={styles.recordSection}>
           <TouchableOpacity
             style={[styles.recordButtonShadow]}
@@ -242,7 +328,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
             </View>
           )}
         </View>
-
+        {/* EXISTING: Audio/Text Diagnosis Results */}
         {diagnosis && (
           <FlatList
             data={DATA_BLOCKS}
@@ -252,13 +338,209 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           />
         )}
 
+        {/* NEW: Heart Disease Prediction Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Heart Disease Prediction</Text>
+          <Text style={styles.sectionSubtitle}>Enter patient details to predict risk.</Text>
+        </View>
+
+        <View style={styles.formSection}>
+          {/* Age */}
+          <Text style={styles.label}>Age</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter age (e.g., 65)"
+            keyboardType="numeric"
+            value={formData.Age}
+            onChangeText={(value) => handleInputChange("Age", value)}
+            editable={!isSubmitting}
+          />
+
+          {/* Sex */}
+          <Text style={styles.label}>Sex</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={formData.Sex}
+              onValueChange={(value) => handleInputChange("Sex", value)}
+              style={styles.picker}
+              enabled={!isSubmitting}
+            >
+              <Picker.Item label="Male (M)" value="M" />
+              <Picker.Item label="Female (F)" value="F" />
+            </Picker>
+          </View>
+
+          {/* ChestPainType */}
+          <Text style={styles.label}>Chest Pain Type</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={formData.ChestPainType}
+              onValueChange={(value) => handleInputChange("ChestPainType", value)}
+              style={styles.picker}
+              enabled={!isSubmitting}
+            >
+              <Picker.Item label="ATA (Asymptomatic)" value="ATA" />
+              <Picker.Item label="NAP (Non-Anginal Pain)" value="NAP" />
+              <Picker.Item label="ASY (Atypical Angina)" value="ASY" />
+              <Picker.Item label="TA (Typical Angina)" value="TA" />
+            </Picker>
+          </View>
+
+          {/* RestingBP */}
+          <Text style={styles.label}>Resting Blood Pressure (mm Hg)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter resting BP (e.g., 180)"
+            keyboardType="numeric"
+            value={formData.RestingBP}
+            onChangeText={(value) => handleInputChange("RestingBP", value)}
+            editable={!isSubmitting}
+          />
+
+          {/* Cholesterol */}
+          <Text style={styles.label}>Cholesterol (mg/dl)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter cholesterol (e.g., 350)"
+            keyboardType="numeric"
+            value={formData.Cholesterol}
+            onChangeText={(value) => handleInputChange("Cholesterol", value)}
+            editable={!isSubmitting}
+          />
+
+          {/* FastingBS */}
+          <Text style={styles.label}>Fasting Blood Sugar ( 120 mg/dl)</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={formData.FastingBS}
+              onValueChange={(value) => handleInputChange("FastingBS", value)}
+              style={styles.picker}
+              enabled={!isSubmitting}
+            >
+              <Picker.Item label="No (0)" value="0" />
+              <Picker.Item label="Yes (1)" value="1" />
+            </Picker>
+          </View>
+
+          {/* RestingECG */}
+          <Text style={styles.label}>Resting ECG</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={formData.RestingECG}
+              onValueChange={(value) => handleInputChange("RestingECG", value)}
+              style={styles.picker}
+              enabled={!isSubmitting}
+            >
+              <Picker.Item label="Normal" value="Normal" />
+              <Picker.Item label="ST" value="ST" />
+              <Picker.Item label="LVH" value="LVH" />
+            </Picker>
+          </View>
+
+          {/* MaxHR */}
+          <Text style={styles.label}>Maximum Heart Rate Achieved</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter max HR (e.g., 95)"
+            keyboardType="numeric"
+            value={formData.MaxHR}
+            onChangeText={(value) => handleInputChange("MaxHR", value)}
+            editable={!isSubmitting}
+          />
+
+          {/* ExerciseAngina */}
+          <Text style={styles.label}>Exercise Induced Angina</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={formData.ExerciseAngina}
+              onValueChange={(value) => handleInputChange("ExerciseAngina", value)}
+              style={styles.picker}
+              enabled={!isSubmitting}
+            >
+              <Picker.Item label="No (N)" value="N" />
+              <Picker.Item label="Yes (Y)" value="Y" />
+            </Picker>
+          </View>
+
+          {/* Oldpeak */}
+          <Text style={styles.label}>Oldpeak (ST depression)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter oldpeak (e.g., 4.2)"
+            keyboardType="decimal-pad"
+            value={formData.Oldpeak}
+            onChangeText={(value) => handleInputChange("Oldpeak", value)}
+            editable={!isSubmitting}
+          />
+
+          {/* ST_Slope */}
+          <Text style={styles.label}>ST Slope</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={formData.ST_Slope}
+              onValueChange={(value) => handleInputChange("ST_Slope", value)}
+              style={styles.picker}
+              enabled={!isSubmitting}
+            >
+              <Picker.Item label="Up" value="Up" />
+              <Picker.Item label="Flat" value="Flat" />
+              <Picker.Item label="Down" value="Down" />
+            </Picker>
+          </View>
+        </View>
+
+        {/* NEW: Heart Submit Button */}
+        <TouchableOpacity
+          style={[
+            styles.submitButtonShadow,
+            isSubmitting && styles.disabledButton,
+          ]}
+          onPress={handleHeartSubmit}
+          activeOpacity={0.85}
+          disabled={isSubmitting}
+        >
+          <LinearGradient
+            colors={isSubmitting ? ["#ccc", "#ccc"] : ["#5A81F8", "#3b62ce"]}
+            style={styles.submitButton}
+            start={{ x: 0.0, y: 0.0 }}
+            end={{ x: 1.0, y: 1.0 }}
+          >
+            <Ionicons
+              name={isSubmitting ? "hourglass" : "send"}
+              size={24}
+              color="white"
+            />
+            <Text style={styles.submitButtonText}>
+              {isSubmitting ? "Analyzing..." : "Predict Heart Risk"}
+            </Text>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        
+
+        {/* NEW: Heart Prediction Result Card */}
+        {heartResult && (
+          <View style={styles.resultCard}>
+            <View style={styles.cardIconContainer}>
+              <FontAwesome5 name="heart" size={28} color="#e05247" />
+            </View>
+            <Text style={styles.cardTitle}>Heart Disease Prediction</Text>
+            <Text style={styles.resultRisk}>
+              Risk Level: <Text style={styles.riskBold}>{heartResult.RiskLevel}</Text>
+            </Text>
+            <Text style={styles.resultProb}>
+              Probability: <Text style={styles.probBold}>{(heartResult.Probability * 100).toFixed(2)}%</Text>
+            </Text>
+          </View>
+        )}
+
         {/* Logout button added here */}
         <View style={styles.logoutContainer}>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
             <Text style={styles.logoutButtonText}>LOGOUT</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -414,5 +696,115 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  // NEW: Styles for Heart Prediction Section
+  sectionHeader: {
+    marginTop: 30,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  sectionSubtitle: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+  },
+  formSection: {
+    marginBottom: 30,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  input: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#333",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    marginBottom: 10,
+  },
+  pickerContainer: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    marginBottom: 10,
+  },
+  picker: {
+    height: 50,
+  },
+  submitButtonShadow: {
+    alignSelf: "center",
+    borderRadius: 25,
+    shadowColor: "#5A81F8",
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 15,
+    marginBottom: 20,
+  },
+  submitButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 25,
+    justifyContent: "center",
+  },
+  submitButtonText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+  resultCard: {
+    backgroundColor: "#ebf0ff",
+    borderRadius: 18,
+    padding: 25,
+    alignSelf: "center",
+    width: cardWidth,
+    elevation: 5,
+    shadowColor: "#5A81F8",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    marginBottom: 20,
+  },
+  resultRisk: {
+    fontSize: 18,
+    color: "#4e5a87",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  resultProb: {
+    fontSize: 18,
+    color: "#4e5a87",
+    textAlign: "center",
+  },
+  riskBold: {
+    fontWeight: "bold",
+    color: "#e05247",
+  },
+  probBold: {
+    fontWeight: "bold",
+    color: "#5A81F8",
   },
 });
