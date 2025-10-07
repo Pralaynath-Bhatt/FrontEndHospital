@@ -24,10 +24,41 @@ const cardMargin = 12;
 const cardWidth = screenWidth - cardMargin * 4;
 
 const DATA_BLOCKS = [
-  { key: "symptoms", title: "Symptoms", icon: "stethoscope" },
-  { key: "medicines", title: "Medicines", icon: "pills" },
-  { key: "summary", title: "Summary", icon: "file-alt" },
+  { key: "symptoms", title: "Symptoms", icon: "stethoscope", color: "#2980b9" },
+  { key: "medicines", title: "Medicines", icon: "capsules", color: "#8e44ad" },
+  { key: "summary", title: "Summary", icon: "file-alt", color: "#16a085" },
 ];
+
+const CollapsibleCard = ({ title, icon, iconColor, children, isExpandedDefault = false }) => {
+  const [expanded, setExpanded] = useState(isExpandedDefault);
+
+  return (
+    <View style={styles.collapsibleCardContainer}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => setExpanded(!expanded)}
+        style={styles.collapsibleHeader}
+      >
+        <LinearGradient
+          colors={[iconColor + "cc", iconColor + "88"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.collapsibleIconBg}
+        >
+          <FontAwesome5 name={icon} size={22} color="white" />
+        </LinearGradient>
+        <Text style={styles.collapsibleTitle}>{title}</Text>
+        <Ionicons
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={22}
+          color="#444"
+          style={{ marginLeft: "auto" }}
+        />
+      </TouchableOpacity>
+      {expanded && <View style={styles.collapsibleContent}>{children}</View>}
+    </View>
+  );
+};
 
 export default function AudioDiagnosisScreen({ onLogout }) {
   const [recording, setRecording] = useState(null);
@@ -36,9 +67,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const [diagnosis, setDiagnosis] = useState(null);
   const [searchText, setSearchText] = useState("");
 
-  // UPDATED: Heart prediction form state (patientName instead of patientId)
   const [formData, setFormData] = useState({
-    patientName: "",  // UPDATED: Use name for DB association
+    patientName: "",
     Age: "",
     Sex: "M",
     ChestPainType: "ATA",
@@ -54,7 +84,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [heartResult, setHeartResult] = useState(null);
 
-  // Request audio recording permission on mount
   useEffect(() => {
     (async () => {
       const { status } = await Audio.requestPermissionsAsync();
@@ -67,7 +96,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     })();
   }, []);
 
-  // Handle text search
   const handleSearch = async () => {
     if (!searchText.trim()) {
       Alert.alert("Error", "Please enter some text.");
@@ -101,20 +129,23 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-  // UPDATED: Handle heart form input changes
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    // Clear result on input change
     if (heartResult) setHeartResult(null);
   };
 
-  // UPDATED: Validate and submit heart prediction
   const handleHeartSubmit = async () => {
-    // Basic validation (UPDATED: Include patientName)
-    const requiredFields = ["patientName", "Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak"];
+    const requiredFields = [
+      "patientName",
+      "Age",
+      "RestingBP",
+      "Cholesterol",
+      "MaxHR",
+      "Oldpeak",
+    ];
     for (let field of requiredFields) {
       if (!formData[field] || formData[field].trim() === "") {
-        Alert.alert("Error", `${field.replace(/([A-Z])/g, ' $1').trim()} is required.`);
+        Alert.alert("Error", `${field.replace(/([A-Z])/g, " $1").trim()} is required.`);
         return;
       }
       if (field !== "patientName" && isNaN(parseFloat(formData[field]))) {
@@ -131,7 +162,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       setIsSubmitting(true);
       setHeartResult(null);
 
-      // Prepare data as list with one object
       const patientData = [
         {
           Age: parseInt(formData.Age),
@@ -148,9 +178,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         },
       ];
 
-      // UPDATED: Send to backend with patientName
       const requestBody = {
-        patientName: formData.patientName.trim(),  // UPDATED
+        patientName: formData.patientName.trim(),
         patientData: patientData,
       };
 
@@ -175,7 +204,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-  // Start recording audio
   const startRecording = async () => {
     try {
       setDiagnosis(null);
@@ -194,7 +222,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-  // Stop recording and send audio file to backend
   const stopRecording = async () => {
     if (!recording) return;
     try {
@@ -209,10 +236,9 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         return;
       }
 
-      // Prepare file for upload
       const fileParts = uri.split("/");
       const fileName = fileParts[fileParts.length - 1];
-      const fileType = "audio/m4a"; // or "audio/mp4" depending on platform
+      const fileType = "audio/m4a";
 
       const formData = new FormData();
       formData.append("audioFile", {
@@ -221,7 +247,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         type: fileType,
       });
 
-      // Replace with your backend endpoint URL
       const response = await axios.post(
         `${BASE_URL}:8080/api/audio/analyze`,
         formData,
@@ -258,13 +283,15 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
 
     return (
-      <View style={styles.card}>
-        <View style={styles.cardIconContainer}>
-          <FontAwesome5 name={item.icon} size={28} color="#5A81F8" />
-        </View>
-        <Text style={styles.cardTitle}>{item.title}</Text>
-        <Text style={styles.cardContent}>{content}</Text>
-      </View>
+      <CollapsibleCard
+        key={item.key}
+        title={item.title}
+        icon={item.icon}
+        iconColor={item.color}
+        isExpandedDefault={item.key === "summary"}
+      >
+        <Text style={styles.collapsibleText}>{content}</Text>
+      </CollapsibleCard>
     );
   };
 
@@ -341,12 +368,9 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
         {/* Audio/Text Diagnosis Results */}
         {diagnosis && (
-          <FlatList
-            data={DATA_BLOCKS}
-            renderItem={renderBlock}
-            keyExtractor={(item) => item.key}
-            contentContainerStyle={styles.listContainer}
-          />
+          <View style={{ marginBottom: 20 }}>
+            {DATA_BLOCKS.map((block) => renderBlock({ item: block }))}
+          </View>
         )}
 
         {/* Heart Disease Prediction Section */}
@@ -356,7 +380,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         </View>
 
         <View style={styles.formSection}>
-          {/* UPDATED: Patient Name Input */}
+          {/* Patient Name Input */}
           <Text style={styles.label}>Patient Name</Text>
           <TextInput
             style={styles.input}
@@ -430,7 +454,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           />
 
           {/* FastingBS */}
-          <Text style={styles.label}>Fasting Blood Sugar ( 120 mg/dl)</Text>
+          <Text style={styles.label}>Fasting Blood Sugar (120 mg/dl)</Text>
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={formData.FastingBS}
@@ -539,18 +563,29 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
         {/* Heart Prediction Result Card */}
         {heartResult && (
-          <View style={styles.resultCard}>
-            <View style={styles.cardIconContainer}>
-              <FontAwesome5 name="heart" size={28} color="#e05247" />
+          <LinearGradient
+            colors={["#e74c3c", "#f39c12"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.resultCardGradient}
+          >
+            <View style={styles.resultCard}>
+              <View style={[styles.cardIconContainer, { backgroundColor: "#f1c40f" }]}>
+                <FontAwesome5 name="heart" size={28} color="#e74c3c" />
+              </View>
+              <Text style={styles.cardTitle}>Heart Disease Prediction</Text>
+              <Text style={styles.resultRisk}>
+                Risk Level:{" "}
+                <Text style={styles.riskBold}>{heartResult.RiskLevel}</Text>
+              </Text>
+              <Text style={styles.resultProb}>
+                Probability:{" "}
+                <Text style={styles.probBold}>
+                  {(heartResult.Probability * 100).toFixed(2)}%
+                </Text>
+              </Text>
             </View>
-            <Text style={styles.cardTitle}>Heart Disease Prediction</Text>
-            <Text style={styles.resultRisk}>
-              Risk Level: <Text style={styles.riskBold}>{heartResult.RiskLevel}</Text>
-            </Text>
-            <Text style={styles.resultProb}>
-              Probability: <Text style={styles.probBold}>{(heartResult.Probability * 100).toFixed(2)}%</Text>
-            </Text>
-          </View>
+          </LinearGradient>
         )}
 
         {/* Logout button */}
@@ -567,7 +602,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f5f7fa",
+    backgroundColor: "#e8f0fe",
   },
   container: {
     flex: 1,
@@ -575,17 +610,23 @@ const styles = StyleSheet.create({
     paddingTop: 25,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#333",
+    fontSize: 36,
+    fontWeight: "900",
+    color: "#34495e",
     textAlign: "center",
     marginBottom: 6,
+    letterSpacing: 1,
+    textShadowColor: "#a0c4ff",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 4,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#666",
+    fontSize: 17,
+    color: "#5d6d7e",
     textAlign: "center",
     marginBottom: 30,
+    fontWeight: "600",
+    fontStyle: "italic",
   },
   searchSection: {
     marginBottom: 20,
@@ -594,32 +635,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "white",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    elevation: 6,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 0,
-    fontSize: 16,
-    color: "#333",
+    fontSize: 17,
+    color: "#34495e",
+    fontWeight: "600",
   },
   searchButton: {
-    backgroundColor: "#5A81F8",
-    borderRadius: 8,
-    padding: 12,
-    marginLeft: 8,
+    backgroundColor: "#2980b9",
+    borderRadius: 10,
+    padding: 14,
+    marginLeft: 10,
     justifyContent: "center",
     alignItems: "center",
-    minWidth: 48,
+    minWidth: 52,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   disabledButton: {
-    backgroundColor: "#ccc",
+    backgroundColor: "#a8b9d6",
+    shadowOpacity: 0,
+    elevation: 0,
   },
   recordSection: {
     alignItems: "center",
@@ -628,25 +677,28 @@ const styles = StyleSheet.create({
   },
   recordButtonShadow: {
     borderRadius: 999,
-    shadowColor: "#5A81F8",
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 15,
+    shadowColor: "#2980b9",
+    shadowOpacity: 0.6,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 20,
   },
   recordButton: {
-    width: 160,
-    height: 160,
+    width: 170,
+    height: 170,
     borderRadius: 999,
     justifyContent: "center",
     alignItems: "center",
   },
   recordButtonText: {
-    marginTop: 12,
+    marginTop: 14,
     color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textShadowColor: "#2c3e50",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
   loadingContainer: {
     marginTop: 20,
@@ -655,177 +707,228 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    color: "#5A81F8",
+    color: "#2980b9",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  collapsibleCardContainer: {
+    marginBottom: 20,
+    borderRadius: 20,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#d6e0ff",
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  collapsibleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 22,
+    backgroundColor: "#ebf3ff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#c3d1ff",
+  },
+  collapsibleIconBg: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+    shadowColor: "#2980b9",
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  collapsibleTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#2c3e50",
+    letterSpacing: 0.3,
+  },
+  collapsibleContent: {
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+  },
+  collapsibleText: {
     fontSize: 16,
+    color: "#34495e",
+    lineHeight: 24,
     fontWeight: "600",
   },
-  listContainer: {
-    paddingBottom: 30,
-  },
-  card: {
-    backgroundColor: "#ebf0ff",
-    borderRadius: 18,
-    paddingVertical: 20,
-    paddingHorizontal: 25,
-    marginBottom: 20,
-    width: cardWidth,
-    alignSelf: "center",
-    elevation: 5,
-    shadowColor: "#5A81F8",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-  },
-  cardIconContainer: {
-    marginBottom: 12,
-    backgroundColor: "#d6e0ff",
-    padding: 14,
-    borderRadius: 50,
-    alignSelf: "center",
-  },
-  cardTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#2a3a8c",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  cardContent: {
-    fontSize: 16,
-    color: "#4e5a87",
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  logoutContainer: {
-    marginTop: 20,
-    alignItems: "center",
-  },
-  logoutButton: {
-    backgroundColor: "#ff6347",
-    borderRadius: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 40,
-    shadowColor: "#ff6347",
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  logoutButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  // Styles for Heart Prediction Section
   sectionHeader: {
-    marginTop: 30,
+    marginTop: 35,
     marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#333",
+    fontSize: 28,
+    fontWeight: "900",
+    color: "#34495e",
     textAlign: "center",
-    marginBottom: 6,
+    marginBottom: 8,
+    letterSpacing: 1,
   },
   sectionSubtitle: {
-    fontSize: 16,
-    color: "#666",
+    fontSize: 17,
+    color: "#5d6d7e",
     textAlign: "center",
+    fontWeight: "600",
+    fontStyle: "italic",
   },
   formSection: {
     marginBottom: 30,
   },
   label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#2c3e50",
     marginBottom: 8,
-    marginTop: 10,
+    marginTop: 14,
   },
   input: {
     backgroundColor: "white",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#333",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    marginBottom: 10,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    fontSize: 17,
+    color: "#34495e",
+    fontWeight: "600",
+    elevation: 5,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    marginBottom: 12,
   },
   pickerContainer: {
     backgroundColor: "white",
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    marginBottom: 10,
+    borderRadius: 16,
+    elevation: 5,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    marginBottom: 12,
   },
   picker: {
-    height: 50,
+    height: 55,
   },
   submitButtonShadow: {
     alignSelf: "center",
-    borderRadius: 25,
-    shadowColor: "#5A81F8",
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 15,
-    marginBottom: 20,
+    borderRadius: 30,
+    shadowColor: "#2980b9",
+    shadowOpacity: 0.6,
+    shadowRadius: 25,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 18,
+    marginBottom: 30,
+    flexDirection: "row",
   },
   submitButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderRadius: 25,
+    paddingHorizontal: 28,
+    paddingVertical: 18,
+    borderRadius: 30,
     justifyContent: "center",
+    minWidth: 240,
   },
   submitButtonText: {
     color: "white",
-    fontSize: 18,
-    fontWeight: "700",
-    marginLeft: 8,
+    fontSize: 20,
+    fontWeight: "900",
+    marginLeft: 10,
+    letterSpacing: 0.6,
+  },
+  resultCardGradient: {
+    borderRadius: 25,
+    marginHorizontal: 12,
+    marginBottom: 30,
+    shadowColor: "#e74c3c",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 15,
   },
   resultCard: {
-    backgroundColor: "#ebf0ff",
-    borderRadius: 18,
-    padding: 25,
+    backgroundColor: "#fff0f0",
+    borderRadius: 25,
+    padding: 30,
     alignSelf: "center",
     width: cardWidth,
-    elevation: 5,
-    shadowColor: "#5A81F8",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    marginBottom: 20,
+    shadowColor: "#e74c3c",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 12,
+    alignItems: "center",
+  },
+  cardIconContainer: {
+    marginBottom: 16,
+    backgroundColor: "#f9d7d5",
+    padding: 18,
+    borderRadius: 60,
+    alignSelf: "center",
+    shadowColor: "#e74c3c",
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  cardTitle: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#c0392b",
+    marginBottom: 16,
+    textAlign: "center",
+    letterSpacing: 1,
   },
   resultRisk: {
-    fontSize: 18,
-    color: "#4e5a87",
+    fontSize: 20,
+    color: "#7f8c8d",
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   resultProb: {
-    fontSize: 18,
-    color: "#4e5a87",
+    fontSize: 20,
+    color: "#7f8c8d",
     textAlign: "center",
   },
   riskBold: {
     fontWeight: "bold",
-    color: "#e05247",
+    color: "#e74c3c",
   },
   probBold: {
     fontWeight: "bold",
-    color: "#5A81F8",
+    color: "#2980b9",
+  },
+  logoutContainer: {
+    marginTop: 20,
+    alignItems: "center",
+    marginBottom: 30,
+  },
+  logoutButton: {
+    backgroundColor: "#c0392b",
+    borderRadius: 25,
+    paddingVertical: 14,
+    paddingHorizontal: 60,
+    shadowColor: "#c0392b",
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 14,
+  },
+  logoutButtonText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 1,
   },
 });
-
-           
