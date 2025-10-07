@@ -10,9 +10,9 @@ import {
   SafeAreaView,
   Alert,
   TextInput,
-  ScrollView, // NEW: Added for scrolling the long form
+  ScrollView,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // NEW: For dropdowns
+import { Picker } from "@react-native-picker/picker";
 import BASE_URL from "./Config";
 import { Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
@@ -36,8 +36,9 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const [diagnosis, setDiagnosis] = useState(null);
   const [searchText, setSearchText] = useState("");
 
-  // NEW: Heart prediction form state
+  // UPDATED: Heart prediction form state (patientName instead of patientId)
   const [formData, setFormData] = useState({
+    patientName: "",  // UPDATED: Use name for DB association
     Age: "",
     Sex: "M",
     ChestPainType: "ATA",
@@ -100,20 +101,24 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-  // NEW: Handle heart form input changes
+  // UPDATED: Handle heart form input changes
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear result on input change
     if (heartResult) setHeartResult(null);
   };
 
-  // NEW: Validate and submit heart prediction
+  // UPDATED: Validate and submit heart prediction
   const handleHeartSubmit = async () => {
-    // Basic validation
-    const requiredFields = ["Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak"];
+    // Basic validation (UPDATED: Include patientName)
+    const requiredFields = ["patientName", "Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak"];
     for (let field of requiredFields) {
-      if (!formData[field] || isNaN(parseFloat(formData[field]))) {
-        Alert.alert("Error", `${field} is required and must be a number.`);
+      if (!formData[field] || formData[field].trim() === "") {
+        Alert.alert("Error", `${field.replace(/([A-Z])/g, ' $1').trim()} is required.`);
+        return;
+      }
+      if (field !== "patientName" && isNaN(parseFloat(formData[field]))) {
+        Alert.alert("Error", `${field} must be a number.`);
         return;
       }
     }
@@ -142,15 +147,20 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           ST_Slope: formData.ST_Slope,
         },
       ];
-      
-  
-      const response = await axios.post(`${BASE_URL}:5000/predict`, patientData, {
+
+      // UPDATED: Send to backend with patientName
+      const requestBody = {
+        patientName: formData.patientName.trim(),  // UPDATED
+        patientData: patientData,
+      };
+
+      const response = await axios.post(`${BASE_URL}:8080/api/heart/predict`, requestBody, {
         headers: {
           "Content-Type": "application/json",
         },
       });
 
-      if (response.status === 200 && response.data) {
+      if (response.status === 200 && response.data && response.data.length > 0) {
         setHeartResult(response.data[0]);
       } else {
         Alert.alert("Error", "Failed to get prediction from server.");
@@ -158,7 +168,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     } catch (error) {
       Alert.alert(
         "Submission Error",
-        error.response?.data?.error || error.message || "Something went wrong!"
+        error.response?.data || error.message || "Something went wrong!"
       );
     } finally {
       setIsSubmitting(false);
@@ -260,13 +270,13 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}> {/* UPDATED: Wrapped in ScrollView for form scrolling */}
-        <Text style={styles.title}>Diagnosis Tools</Text> {/* UPDATED: Title to reflect multiple tools */}
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <Text style={styles.title}>Diagnosis Tools</Text>
         <Text style={styles.subtitle}>
           Record a patient's description, search text, or predict heart disease risk.
         </Text>
 
-        {/* EXISTING: Text Search Section */}
+        {/* Text Search Section */}
         <View style={styles.searchSection}>
           <View style={styles.searchContainer}>
             <TextInput
@@ -297,7 +307,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           </View>
         </View>
 
-        {/* EXISTING: Audio Recording Section */}
+        {/* Audio Recording Section */}
         <View style={styles.recordSection}>
           <TouchableOpacity
             style={[styles.recordButtonShadow]}
@@ -328,7 +338,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
             </View>
           )}
         </View>
-        {/* EXISTING: Audio/Text Diagnosis Results */}
+
+        {/* Audio/Text Diagnosis Results */}
         {diagnosis && (
           <FlatList
             data={DATA_BLOCKS}
@@ -338,13 +349,23 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           />
         )}
 
-        {/* NEW: Heart Disease Prediction Section */}
+        {/* Heart Disease Prediction Section */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Heart Disease Prediction</Text>
           <Text style={styles.sectionSubtitle}>Enter patient details to predict risk.</Text>
         </View>
 
         <View style={styles.formSection}>
+          {/* UPDATED: Patient Name Input */}
+          <Text style={styles.label}>Patient Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter patient name (e.g., John Doe)"
+            value={formData.patientName}
+            onChangeText={(value) => handleInputChange("patientName", value)}
+            editable={!isSubmitting}
+          />
+
           {/* Age */}
           <Text style={styles.label}>Age</Text>
           <TextInput
@@ -489,7 +510,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           </View>
         </View>
 
-        {/* NEW: Heart Submit Button */}
+        {/* Heart Submit Button */}
         <TouchableOpacity
           style={[
             styles.submitButtonShadow,
@@ -516,9 +537,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           </LinearGradient>
         </TouchableOpacity>
 
-        
-
-        {/* NEW: Heart Prediction Result Card */}
+        {/* Heart Prediction Result Card */}
         {heartResult && (
           <View style={styles.resultCard}>
             <View style={styles.cardIconContainer}>
@@ -534,7 +553,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           </View>
         )}
 
-        {/* Logout button added here */}
+        {/* Logout button */}
         <View style={styles.logoutContainer}>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
             <Text style={styles.logoutButtonText}>LOGOUT</Text>
@@ -697,7 +716,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
   },
-  // NEW: Styles for Heart Prediction Section
+  // Styles for Heart Prediction Section
   sectionHeader: {
     marginTop: 30,
     marginBottom: 20,
@@ -808,3 +827,5 @@ const styles = StyleSheet.create({
     color: "#5A81F8",
   },
 });
+
+           
