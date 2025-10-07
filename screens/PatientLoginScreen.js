@@ -15,7 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Modal from "react-native-modal";
 import axios from "axios";
-import BASE_URL from "./Config";
+import BASE_URL from "./Config";  // Adjust path if Config is not in parent dir
 
 export default function PatientLoginScreen({ navigation, onLogin }) {
   const [name, setName] = useState("");
@@ -28,6 +28,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
   const [modalMessage, setModalMessage] = useState("");
   const [modalIcon, setModalIcon] = useState("");
   const [modalColor, setModalColor] = useState("");
+  const [isSuccess, setIsSuccess] = useState(false);  // Track for modal flow
 
   // Refs
   const passwordInputRef = useRef(null);
@@ -40,7 +41,6 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
   const passwordInputAnim = useRef(new Animated.Value(1)).current;
   const buttonScaleAnim = useRef(new Animated.Value(1)).current;
   const modalScaleAnim = useRef(new Animated.Value(0.7)).current;
-
 
   useEffect(() => {
     // Initial entrance animations
@@ -91,9 +91,6 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
 
   // Shake animation for errors
   const triggerShake = () => {
-    // Optional: Implement shake animation on inputs or just a placeholder
-    // For now, you can leave it empty or add a console log
-    // Or animate nameInputAnim and passwordInputAnim for shake effect if you want
     console.log("Shake triggered");
   };
 
@@ -124,6 +121,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
       setModalIcon("alert-circle-outline");
       setModalColor("#FF6347");
       setModalMessage("Please enter both name and password.");
+      setIsSuccess(false);
       setModalVisible(true);
       return;
     }
@@ -132,29 +130,43 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
     animateButtonPress();
 
     try {
-      // Replace with your actual backend API endpoint
+      console.log("Attempting login with name:", name.trim());  // DEBUG
       const response = await axios.post(`${BASE_URL}:8080/api/patient/login`, {
         name: name.trim(),
         password,
       });
 
+      console.log("Login Response:", response.status, response.data);  // DEBUG
+
       if (response.status === 200 && response.data) {
-        // Handle successful login here (e.g., save token, call onLogin, navigate)
+        // Extract patientName from backend response (assumes it returns patient object with 'name')
+        const patientNameFromResponse = response.data.name || name.trim();  // Fallback to input
+        console.log("Extracted patientName:", patientNameFromResponse);  // DEBUG
+
         setModalIcon("check-circle-outline");
         setModalColor("#4CAF50");
         setModalMessage("Login successful!");
+        setIsSuccess(true);
         setModalVisible(true);
-        // You can call onLogin() here if needed
+
+        // REWRITTEN: Call onLogin callback (from App.js) to handle state + navigation
+        // Optional brief delay to show success modal before transitioning
+        setTimeout(() => {
+          if (onLogin) {
+            onLogin(patientNameFromResponse);
+          }
+        }, 1000);  // Adjust or remove; allows user to see "success" briefly
       } else {
         triggerShake();
         setModalIcon("alert-circle-outline");
         setModalColor("#FF6347");
         setModalMessage("Login failed. Please check your credentials.");
+        setIsSuccess(false);
         setModalVisible(true);
       }
     } catch (error) {
       triggerShake();
-      console.log("Login error:", error.response || error.message);
+      console.error("Login error:", error.response || error.message);  // DEBUG
       if (error.response && error.response.data) {
         const message =
           typeof error.response.data === "string"
@@ -168,6 +180,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
         setModalColor("#FF6347");
         setModalMessage("Network error. Please try again later.");
       }
+      setIsSuccess(false);
       setModalVisible(true);
     } finally {
       setLoading(false);
@@ -176,10 +189,8 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
 
   const onModalOkPress = () => {
     setModalVisible(false);
-    if (modalMessage === "Login successful!") {
-      if (onLogin) onLogin();
-      navigation.replace("PatientHomeScreen"); // or your app's main patient screen
-    }
+    setIsSuccess(false);  // Reset for next use
+    // REWRITTEN: No direct navigation—handled by onLogin in handleLogin
   };
 
   return (
@@ -315,7 +326,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
               >
                 {loading ? (
                   <View style={styles.loadingContainer}>
-                      <Ionicons name="ellipse" size={20} color="white" />
+                    <Ionicons name="ellipse" size={20} color="white" />
                     <Text style={styles.loginText}>Logging in...</Text>
                   </View>
                 ) : (
@@ -338,6 +349,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
               </Text>
             </TouchableOpacity>
 
+            {/* Go to Doctor Login */}
             <TouchableOpacity
               onPress={() => navigation.navigate("DoctorLogin")}
               style={styles.linkContainer}
@@ -351,6 +363,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
           </Animated.View>
         </SafeAreaView>
 
+        {/* Success/Error Modal */}
         <Modal 
           isVisible={isModalVisible} 
           onBackdropPress={toggleModal}
@@ -367,8 +380,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
               },
             ]}
           >
-            
-              <MaterialCommunityIcons name={modalIcon} size={60} color={modalColor} />
+            <MaterialCommunityIcons name={modalIcon} size={60} color={modalColor} />
             <Text style={[styles.modalText, { color: modalColor }]}>{modalMessage}</Text>
             <TouchableOpacity 
               onPress={onModalOkPress} 

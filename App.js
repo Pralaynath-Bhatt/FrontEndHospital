@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -18,29 +18,52 @@ const Stack = createNativeStackNavigator();
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userType, setUserType] = useState(null); // 'doctor' or 'patient'
+  const [userData, setUserData] = useState(null); // user info (e.g., name)
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = (type, navigation) => {
-    setUserType(type);
-    setIsLoggedIn(true);
+  const navigationRef = useRef();
 
-    // Reset navigation to home screen
-    navigation.reset({
-      index: 0,
-      routes: [{ name: type === "doctor" ? "DoctorHomeScreen" : "PatientHomeScreen" }],
-    });
+  const handleLogin = (type, userInfo = null) => {
+    setUserType(type);
+    setUserData(userInfo);
+    setIsLoggedIn(true);
   };
 
-  const handleLogout = (navigation) => {
+  const handleLogout = () => {
     setUserType(null);
+    setUserData(null);
     setIsLoggedIn(false);
-
-    // Reset navigation to Welcome screen
-    navigation.reset({
+    navigationRef.current?.reset({
       index: 0,
       routes: [{ name: "Welcome" }],
     });
   };
+
+  useEffect(() => {
+    if (isLoggedIn && userType) {
+      let homeScreenName, params = {};
+      if (userType === "doctor") {
+        homeScreenName = "DoctorHomeScreen";
+        // You can add doctor-specific params if needed
+      } else if (userType === "patient") {
+        homeScreenName = "PatientHomeScreen";
+        params = { patientName: userData };
+      } else {
+        console.warn("Invalid userType:", userType);
+        return;
+      }
+
+      // Small delay ensures state updates before navigation
+      setTimeout(() => {
+        if (navigationRef.current?.reset) {
+          navigationRef.current.reset({
+            index: 0,
+            routes: [{ name: homeScreenName, params }],
+          });
+        }
+      }, 100);
+    }
+  }, [isLoggedIn, userType]);
 
   if (loading) {
     return (
@@ -51,46 +74,50 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!isLoggedIn ? (
-          <>
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="NewLogin" component={NewLoginScreen} />
+    <NavigationContainer ref={navigationRef}>
+      <Stack.Navigator initialRouteName="Welcome" screenOptions={{ headerShown: false }}>
+        {/* Auth Screens */}
+        <Stack.Screen name="Welcome" component={WelcomeScreen} />
+        <Stack.Screen name="NewLogin" component={NewLoginScreen} />
+        <Stack.Screen name="DoctorRegister" component={DoctorRegisterScreen} />
+        <Stack.Screen name="PatientRegister" component={PatientRegisterScreen} />
 
-            <Stack.Screen name="DoctorLogin">
-              {(props) => (
-                <DoctorLoginScreen
-                  {...props}
-                  onLogin={() => handleLogin("doctor", props.navigation)}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="DoctorRegister" component={DoctorRegisterScreen} />
+        <Stack.Screen name="DoctorLogin">
+          {(props) => (
+            <DoctorLoginScreen
+              {...props}
+              onLogin={(doctorInfo) => handleLogin("doctor", doctorInfo)}
+            />
+          )}
+        </Stack.Screen>
 
-            <Stack.Screen name="PatientLogin">
-              {(props) => (
-                <PatientLoginScreen
-                  {...props}
-                  onLogin={() => handleLogin("patient", props.navigation)}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="PatientRegister" component={PatientRegisterScreen} />
-          </>
-        ) : userType === "doctor" ? (
-          <Stack.Screen name="DoctorHome">
-            {(props) => (
-              <DoctorHomeScreen {...props} onLogout={() => handleLogout(props.navigation)} />
-            )}
-          </Stack.Screen>
-        ) : (
-          <Stack.Screen name="PatientHome">
-            {(props) => (
-              <PatientHomeScreen {...props} onLogout={() => handleLogout(props.navigation)} />
-            )}
-          </Stack.Screen>
-        )}
+        <Stack.Screen name="PatientLogin">
+          {(props) => (
+            <PatientLoginScreen
+              {...props}
+              onLogin={(patientName) => handleLogin("patient", patientName)}
+            />
+          )}
+        </Stack.Screen>
+
+        {/* Home Screens */}
+        <Stack.Screen name="DoctorHomeScreen">
+          {(props) => (
+            <DoctorHomeScreen
+              {...props}
+              onLogout={handleLogout}
+            />
+          )}
+        </Stack.Screen>
+
+        <Stack.Screen name="PatientHomeScreen">
+          {(props) => (
+            <PatientHomeScreen
+              {...props}
+              onLogout={handleLogout}
+            />
+          )}
+        </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
   );
