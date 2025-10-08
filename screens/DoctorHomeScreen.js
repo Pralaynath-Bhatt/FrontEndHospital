@@ -13,6 +13,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
+import Animated, { FadeInLeft } from 'react-native-reanimated'; // Optional: for animations (install if needed)
 import BASE_URL from "./Config";
 import { Audio } from "expo-av";
 import { LinearGradient } from "expo-linear-gradient";
@@ -60,12 +61,143 @@ const CollapsibleCard = ({ title, icon, iconColor, children, isExpandedDefault =
   );
 };
 
+// New Component: Adapted from PatientHomeScreen's DiagnosisSection for patient results
+const DiagnosisSection = ({
+  title,
+  iconName,
+  iconColor,
+  children,
+  isExpandedDefault = false,
+}) => {
+  const [expanded, setExpanded] = useState(isExpandedDefault);
+
+  return (
+    <View style={patientStyles.sectionContainer}>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={() => setExpanded(!expanded)}
+        style={patientStyles.sectionHeader}
+      >
+        <LinearGradient
+          colors={[iconColor + 'cc', iconColor + '66']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={patientStyles.iconBackground}
+        >
+          <FontAwesome5 name={iconName} size={20} color="white" />
+        </LinearGradient>
+        <Text style={patientStyles.sectionTitle}>{title}</Text>
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={22}
+          color="#444"
+          style={{ marginLeft: 'auto' }}
+        />
+      </TouchableOpacity>
+      {expanded && <View style={patientStyles.sectionContent}>{children}</View>}
+    </View>
+  );
+};
+
+// New Function: Render Patient Diagnosis Item (mirrors PatientHomeScreen's renderDiagnosisItem)
+const renderPatientDiagnosisItem = ({ item }) => {
+  const isPositive =
+    item.prediction.toLowerCase().includes('high') ||
+    item.prediction.toLowerCase().includes('positive');
+
+  const gradientColors = isPositive
+    ? ['#ff4e50', '#f9d423']
+    : ['#11998e', '#38ef7d'];
+
+  return (
+    <Animated.View
+      style={patientStyles.diagnosisContainer}
+      entering={FadeInLeft.duration(800)} // Optional animation
+    >
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={patientStyles.dateBanner}
+      >
+        <Text style={patientStyles.dateBannerText}>{item.date}</Text>
+      </LinearGradient>
+
+      <DiagnosisSection
+        title="Symptoms & Input Details"
+        iconName="stethoscope"
+        iconColor="#3498db"
+        isExpandedDefault={false}
+      >
+        {item.symptoms.length > 0 ? (
+          item.symptoms.map((symptom, index) => (
+            <View key={index} style={patientStyles.listItemContainer}>
+              <View style={patientStyles.bulletPoint} />
+              <Text style={patientStyles.listItemText}>{symptom}</Text>
+            </View>
+          ))
+        ) : (
+          <Text style={patientStyles.listItemText}>No detailed inputs recorded</Text>
+        )}
+      </DiagnosisSection>
+
+      <DiagnosisSection
+        title="Prediction"
+        iconName="heartbeat"
+        iconColor={isPositive ? '#e74c3c' : '#2ecc71'}
+        isExpandedDefault={true}
+      >
+        <View style={patientStyles.predictionWrapper}>
+          <FontAwesome5
+            name="heart"
+            size={30}
+            color={isPositive ? '#e74c3c' : '#2ecc71'}
+            style={{ marginRight: 10 }}
+          />
+          <Text
+            style={[
+              patientStyles.predictionText,
+              { color: isPositive ? '#e74c3c' : '#2ecc71' },
+            ]}
+          >
+            {item.prediction}
+          </Text>
+        </View>
+      </DiagnosisSection>
+
+      <DiagnosisSection
+        title="Recommended Medicines"
+        iconName="capsules"
+        iconColor="#9b59b6"
+        isExpandedDefault={false}
+      >
+        {item.medicines.length > 0 ? (
+          item.medicines.map((med, idx) => (
+            <View key={idx} style={patientStyles.listItemContainer}>
+              <View style={[patientStyles.bulletPoint, { backgroundColor: '#9b59b6' }]} />
+              <Text style={patientStyles.listItemText}>{med}</Text>
+            </View>
+          ))
+        ) : (
+          <Text style={patientStyles.listItemText}>No recommendations available</Text>
+        )}
+      </DiagnosisSection>
+    </Animated.View>
+  );
+};
+
 export default function AudioDiagnosisScreen({ onLogout }) {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
   const [searchText, setSearchText] = useState("");
+
+  // New States for Patient Search
+  const [patientSearchText, setPatientSearchText] = useState("");
+  const [patientLoading, setPatientLoading] = useState(false);
+  const [patientError, setPatientError] = useState(null);
+  const [patientDiagnosisList, setPatientDiagnosisList] = useState([]);
 
   const [formData, setFormData] = useState({
     patientName: "",
@@ -127,6 +259,146 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  // New: Handle Patient Name Search
+  const handlePatientSearch = async () => {
+    const searchName = patientSearchText.trim();
+    if (!searchName) {
+      Alert.alert("Error", "Please enter a patient name.");
+      return;
+    }
+
+    // Optional: Pre-fill heart form with searched patient name
+    setFormData(prev => ({ ...prev, patientName: searchName }));
+
+    setPatientLoading(true);
+    setPatientError(null);
+    setPatientDiagnosisList([]);
+
+    try {
+      await new Promise((res) => setTimeout(res, 500)); // Small delay for UX
+
+      const response = await axios.get(
+        `${BASE_URL}:8080/api/patient/${encodeURIComponent(searchName)}/predictions`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        }
+      );
+
+      if (
+        response.status === 200 &&
+        response.data &&
+        Array.isArray(response.data)
+      ) {
+        const transformedData = response.data
+          .filter((pred) => pred && pred.date && pred.riskLevel)
+          .map((prediction) => {
+            let date;
+            if (typeof prediction.date === 'string') {
+              date = new Date(prediction.date).toISOString().split('T')[0];
+            } else {
+              date = new Date().toISOString().split('T')[0];
+            }
+
+            const inputData = prediction.inputData || {};
+            const symptoms = [
+              `Age: ${inputData.Age || 'N/A'}`,
+              `Sex: ${
+                inputData.Sex === 'M'
+                  ? 'Male'
+                  : inputData.Sex === 'F'
+                  ? 'Female'
+                  : 'N/A'
+              }`,
+              `Chest Pain Type: ${inputData.ChestPainType || 'N/A'}`,
+              `Resting BP: ${inputData.RestingBP || 'N/A'} mm Hg`,
+              `Cholesterol: ${inputData.Cholesterol || 'N/A'} mg/dl`,
+              `Fasting BS: ${
+                inputData.FastingBS === '1'
+                  ? 'High (>120 mg/dl)'
+                  : 'Normal'
+              }`,
+              `Resting ECG: ${inputData.RestingECG || 'N/A'}`,
+              `Max HR: ${inputData.MaxHR || 'N/A'}`,
+              `Exercise Angina: ${
+                inputData.ExerciseAngina === 'Y' ? 'Yes' : 'No'
+              }`,
+              `Oldpeak: ${inputData.Oldpeak || 'N/A'} (ST depression)`,
+              `ST Slope: ${inputData.ST_Slope || 'N/A'}`,
+            ].filter((s) => !s.includes('N/A'));
+
+            const symptomsList =
+              symptoms.length > 0 ? symptoms : ['No detailed inputs recorded'];
+
+            const riskLevel = prediction.riskLevel || 'Unknown';
+            const probability = ((prediction.probability || 0) * 100).toFixed(1);
+            const predictionStr = `Heart Disease ${riskLevel} (${probability}%)`;
+
+            let medicines = [];
+            switch (riskLevel.toLowerCase()) {
+              case 'high':
+                medicines = [
+                  'Aspirin (daily)',
+                  'Statins (for cholesterol)',
+                  'Beta-blockers (for heart rate)',
+                ];
+                break;
+              case 'medium':
+                medicines = ['Aspirin (as needed)', 'Lifestyle changes recommended'];
+                break;
+              case 'low':
+              case 'negative':
+                medicines = ['No immediate medication; maintain healthy lifestyle'];
+                break;
+              default:
+                medicines = ['Consult a doctor for recommendations'];
+            }
+
+            return {
+              date,
+              symptoms: symptomsList,
+              prediction: predictionStr,
+              medicines,
+            };
+          })
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        setPatientDiagnosisList(transformedData);
+      } else {
+        setPatientDiagnosisList([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch patient predictions:', error);
+      let errorMsg = 'Failed to fetch patient history.';
+      if (error.response) {
+        if (error.response.status === 404) {
+          errorMsg = `No predictions found for patient "${searchName}".`;
+        } else if (error.response.data) {
+          errorMsg =
+            typeof error.response.data === 'string'
+              ? error.response.data
+              : error.response.data.message || errorMsg;
+        }
+      } else if (error.code === 'ECONNABORTED') {
+        errorMsg = 'Request timed out. Please check your connection.';
+      } else {
+        errorMsg = error.message || errorMsg;
+      }
+      setPatientError(errorMsg);
+      setPatientDiagnosisList([]);
+    } finally {
+      setPatientLoading(false);
+    }
+  };
+
+  // New: Retry Patient Search
+  const handlePatientRetry = () => {
+    setPatientError(null);
+    handlePatientSearch();
   };
 
   const handleInputChange = (field, value) => {
@@ -203,7 +475,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       setIsSubmitting(false);
     }
   };
-
   const startRecording = async () => {
     try {
       setDiagnosis(null);
@@ -303,36 +574,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           Record a patient's description, search text, or predict heart disease risk.
         </Text>
 
-        {/* Text Search Section */}
-        <View style={styles.searchSection}>
-          <View style={styles.searchContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Type a patient's description here..."
-              placeholderTextColor="#999"
-              value={searchText}
-              onChangeText={setSearchText}
-              multiline={false}
-              returnKeyType="search"
-              onSubmitEditing={handleSearch}
-              editable={!isUploading}
-            />
-            <TouchableOpacity
-              style={[
-                styles.searchButton,
-                (isUploading || !searchText.trim()) && styles.disabledButton,
-              ]}
-              onPress={handleSearch}
-              disabled={isUploading || !searchText.trim()}
-            >
-              <Ionicons
-                name="search"
-                size={24}
-                color={isUploading || !searchText.trim() ? "#999" : "white"}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
+
 
         {/* Audio Recording Section */}
         <View style={styles.recordSection}>
@@ -588,6 +830,75 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           </LinearGradient>
         )}
 
+        {/* New: Patient History Search Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Patient History Search</Text>
+          <Text style={styles.sectionSubtitle}>Search for a patient's past predictions and recommendations.</Text>
+        </View>
+
+        <View style={styles.searchSection}>
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Enter patient name (e.g., John Doe)..."
+              placeholderTextColor="#999"
+              value={patientSearchText}
+              onChangeText={setPatientSearchText}
+              multiline={false}
+              returnKeyType="search"
+              onSubmitEditing={handlePatientSearch}
+              editable={!patientLoading}
+            />
+            <TouchableOpacity
+              style={[
+                styles.searchButton,
+                (patientLoading || !patientSearchText.trim()) && styles.disabledButton,
+              ]}
+              onPress={handlePatientSearch}
+              disabled={patientLoading || !patientSearchText.trim()}
+            >
+              <Ionicons
+                name={patientLoading ? "hourglass" : "search"}
+                size={24}
+                color={patientLoading || !patientSearchText.trim() ? "#999" : "white"}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Patient Search Results */}
+        {patientLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#5A81F8" />
+            <Text style={styles.loadingText}>Searching patient history...</Text>
+          </View>
+        ) : patientError ? (
+          <View style={styles.errorContainer}>
+            <FontAwesome5 name="exclamation-triangle" size={48} color="#e74c3c" />
+            <Text style={styles.errorText}>{patientError}</Text>
+            <TouchableOpacity onPress={handlePatientRetry} style={styles.retryButton}>
+              <Text style={styles.retryButtonText}>Retry Search</Text>
+            </TouchableOpacity>
+          </View>
+        ) : patientDiagnosisList && patientDiagnosisList.length > 0 ? (
+          <FlatList
+            data={patientDiagnosisList}
+            renderItem={renderPatientDiagnosisItem}
+            keyExtractor={(item, index) => `${item.date}-${index}`}
+            contentContainerStyle={patientStyles.listContainer}
+            scrollEnabled={false}
+            style={{ marginBottom: 20 }}
+          />
+        ) : patientSearchText.trim() && !patientLoading ? (
+          <View style={styles.noDataContainer}>
+            <FontAwesome5 name="heart" size={64} color="#95a5a6" />
+            <Text style={styles.noDataText}>No predictions found for this patient.</Text>
+            <Text style={styles.noDataSubtext}>
+              Create a new prediction using the Heart Disease section above.
+            </Text>
+          </View>
+        ) : null}
+
         {/* Logout button */}
         <View style={styles.logoutContainer}>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
@@ -643,7 +954,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  searchInput: {
+    searchInput: {
     flex: 1,
     paddingVertical: 14,
     paddingHorizontal: 0,
@@ -930,5 +1241,194 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
     letterSpacing: 1,
+  },
+
+  // New Styles for Patient Search (Error, No Data, Retry)
+  errorContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 40,
+    marginBottom: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: "#e74c3c",
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 20,
+    lineHeight: 22,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  retryButton: {
+    backgroundColor: "#2980b9",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 30,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 6,
+    minWidth: 120,
+  },
+  retryButtonText: {
+    color: "white",
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: 0.5,
+  },
+  noDataContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 40,
+    marginBottom: 20,
+  },
+  noDataText: {
+    fontSize: 20,
+    color: "#999",
+    textAlign: "center",
+    marginTop: 12,
+    fontWeight: "600",
+    lineHeight: 26,
+  },
+  noDataSubtext: {
+    fontSize: 15,
+    color: "#bbb",
+    textAlign: "center",
+    marginTop: 10,
+    marginBottom: 20,
+    lineHeight: 22,
+    fontWeight: "400",
+  },
+});
+
+// New: Patient-Specific Styles (Adapted from PatientHomeScreen to match your app's theme)
+const patientStyles = StyleSheet.create({
+  // Layout & Global
+  listContainer: {
+    paddingBottom: 40,
+  },
+
+  // Diagnosis Container
+  diagnosisContainer: {
+    marginBottom: 30,
+    backgroundColor: 'white',
+    borderRadius: 25,
+    padding: 20,
+    shadowColor: '#2980b9', // Matches your blue theme
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+
+  dateBanner: {
+    borderRadius: 22,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    marginBottom: 18,
+    alignSelf: 'center',
+    shadowColor: '#222',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  dateBannerText: {
+    fontWeight: '700',
+    fontSize: 18,
+    color: 'white',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    fontFamily: 'System',
+  },
+
+  // Section styles
+  sectionContainer: {
+    marginBottom: 20,
+    borderRadius: 20,
+    backgroundColor: '#fefefe',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#d6e0ff', // Matches your light blue borders
+    shadowColor: '#2980b9',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: '#ebf3ff', // Matches your collapsible header bg
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#c3d1ff',
+  },
+  iconBackground: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#2c3e50', // Matches your text colors
+    letterSpacing: 0.4,
+  },
+  sectionContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  listItemContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  bulletPoint: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3498db', // Blue bullet to match theme
+    marginTop: 8,
+    marginRight: 12,
+    shadowColor: '#3498db',
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 3,
+  },
+  listItemText: {
+    fontSize: 15,
+    color: '#34495e', // Matches your text color
+    flexShrink: 1,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  predictionWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  predictionText: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: 0.4,
   },
 });
