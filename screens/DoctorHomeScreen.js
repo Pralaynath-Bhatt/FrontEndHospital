@@ -199,6 +199,9 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const [patientError, setPatientError] = useState(null);
   const [patientDiagnosisList, setPatientDiagnosisList] = useState([]);
 
+  // New State for Audio Patient Name
+  const [audioPatientName, setAudioPatientName] = useState("");
+
   const [formData, setFormData] = useState({
     patientName: "",
     Age: "",
@@ -496,6 +499,12 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const stopRecording = async () => {
     if (!recording) return;
     try {
+      if (!audioPatientName.trim()) {
+        Alert.alert("Error", "Please enter the patient's name before uploading the recording.");
+        setIsRecording(false);
+        return;
+      }
+
       setIsRecording(false);
       setIsUploading(true);
       await recording.stopAndUnloadAsync();
@@ -511,16 +520,17 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       const fileName = fileParts[fileParts.length - 1];
       const fileType = "audio/m4a";
 
-      const formData = new FormData();
-      formData.append("audioFile", {
+      const formDataToSend = new FormData();
+      formDataToSend.append("audioFile", {
         uri,
         name: fileName,
         type: fileType,
       });
+      formDataToSend.append("patientName", audioPatientName.trim());
 
       const response = await axios.post(
         `${BASE_URL}:8080/api/audio/predict`,
-        formData,
+        formDataToSend,
         {
           headers: {
             "Content-Type": "multipart/form-data",
@@ -544,7 +554,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-  const renderBlock = ({ item }) => {
+    const renderBlock = ({ item }) => {
     let content = diagnosis ? diagnosis[item.key] : null;
 
     if (Array.isArray(content)) {
@@ -574,15 +584,23 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           Record a patient's description, search text, or predict heart disease risk.
         </Text>
 
-
-
         {/* Audio Recording Section */}
         <View style={styles.recordSection}>
+          {/* New: Patient Name Input for Audio */}
+          <Text style={styles.label}>Patient Name for Audio Recording</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter patient name (e.g., John Doe)"
+            value={audioPatientName}
+            onChangeText={setAudioPatientName}
+            editable={!isRecording && !isUploading}
+          />
+
           <TouchableOpacity
             style={[styles.recordButtonShadow]}
             onPress={isRecording ? stopRecording : startRecording}
             activeOpacity={0.85}
-            disabled={isUploading}
+            disabled={isUploading || !audioPatientName.trim()}
           >
             <LinearGradient
               colors={isRecording ? ["#e05247", "#d8433f"] : ["#5A81F8", "#3b62ce"]}
@@ -954,7 +972,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-    searchInput: {
+  searchInput: {
     flex: 1,
     paddingVertical: 14,
     paddingHorizontal: 0,
@@ -1058,7 +1076,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  collapsibleTitle: {
+    collapsibleTitle: {
     fontSize: 20,
     fontWeight: "800",
     color: "#2c3e50",
