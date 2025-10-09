@@ -519,7 +519,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       });
 
       const response = await axios.post(
-        `${BASE_URL}:8080/api/audio/analyze`,
+        `${BASE_URL}:8080/api/audio/predict`,
         formData,
         {
           headers: {
