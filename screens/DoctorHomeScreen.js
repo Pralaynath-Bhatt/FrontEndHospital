@@ -186,11 +186,107 @@ const renderPatientDiagnosisItem = ({ item }) => {
   );
 };
 
+// New: Render Audio Diagnosis Result (similar to patient item, but for audio response)
+const renderAudioDiagnosis = (audioResult) => {
+  const isPositive = audioResult.prediction.toLowerCase().includes('high') || audioResult.prediction.toLowerCase().includes('positive');
+  const gradientColors = isPositive ? ['#ff4e50', '#f9d423'] : ['#11998e', '#38ef7d'];
+
+  return (
+    <Animated.View
+      style={[patientStyles.diagnosisContainer, { marginBottom: 30 }]}
+      entering={FadeInLeft.duration(800)}
+    >
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={patientStyles.dateBanner}
+      >
+        <Text style={patientStyles.dateBannerText}>{audioResult.date}</Text>
+      </LinearGradient>
+
+      <DiagnosisSection
+        title="Extracted Patient Details (from Audio Transcript)"
+        iconName="stethoscope"
+        iconColor="#3498db"
+        isExpandedDefault={true}
+      >
+        {audioResult.symptoms.length > 0 ? (
+          audioResult.symptoms.map((symptom, index) => (
+            <View key={index} style={patientStyles.listItemContainer}>
+              <View style={patientStyles.bulletPoint} />
+              <Text style={patientStyles.listItemText}>{symptom}</Text>
+            </View>
+          ))
+        ) : (
+          <Text style={patientStyles.listItemText}>No details extracted</Text>
+        )}
+      </DiagnosisSection>
+
+      <DiagnosisSection
+        title="Audio Transcript"
+        iconName="microphone"
+        iconColor="#9b59b6"
+        isExpandedDefault={true}
+      >
+        <View style={patientStyles.listItemContainer}>
+          <Text style={[patientStyles.listItemText, { fontStyle: 'italic', paddingBottom: 10 }]}>
+            {audioResult.transcript}
+          </Text>
+        </View>
+      </DiagnosisSection>
+
+      <DiagnosisSection
+        title="Heart Disease Prediction"
+        iconName="heartbeat"
+        iconColor={isPositive ? '#e74c3c' : '#2ecc71'}
+        isExpandedDefault={true}
+      >
+        <View style={patientStyles.predictionWrapper}>
+          <FontAwesome5
+            name="heart"
+            size={30}
+            color={isPositive ? '#e74c3c' : '#2ecc71'}
+            style={{ marginRight: 10 }}
+          />
+          <View>
+            <Text style={patientStyles.predictionText}>
+              {audioResult.prediction}
+            </Text>
+            <Text style={[patientStyles.listItemText, { fontSize: 14, color: '#7f8c8d', textAlign: 'center' }]}>
+              Model: {audioResult.model_used}
+            </Text>
+          </View>
+        </View>
+      </DiagnosisSection>
+
+      <DiagnosisSection
+        title="Recommended Actions"
+        iconName="capsules"
+        iconColor="#9b59b6"
+        isExpandedDefault={false}
+      >
+        {audioResult.medicines.length > 0 ? (
+          audioResult.medicines.map((med, idx) => (
+            <View key={idx} style={patientStyles.listItemContainer}>
+              <View style={[patientStyles.bulletPoint, { backgroundColor: '#9b59b6' }]} />
+              <Text style={patientStyles.listItemText}>{med}</Text>
+            </View>
+          ))
+        ) : (
+          <Text style={patientStyles.listItemText}>Consult a doctor for personalized recommendations.</Text>
+        )}
+      </DiagnosisSection>
+    </Animated.View>
+  );
+};
+
 export default function AudioDiagnosisScreen({ onLogout }) {
   const [recording, setRecording] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [diagnosis, setDiagnosis] = useState(null);
+  const [textDiagnosis, setTextDiagnosis] = useState(null);  // For text search results
+  const [audioDiagnosis, setAudioDiagnosis] = useState(null);  // New: For audio results
   const [searchText, setSearchText] = useState("");
 
   // New States for Patient Search
@@ -237,7 +333,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       return;
     }
     try {
-      setDiagnosis(null);
+      setTextDiagnosis(null);
       setIsUploading(true);
       const response = await axios.post(
         `${BASE_URL}:8080/api/text/analyze`,
@@ -250,7 +346,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       );
 
       if (response.status === 200 && response.data) {
-        setDiagnosis(response.data);
+        setTextDiagnosis(response.data);
       } else {
         Alert.alert("Error", "Failed to get diagnosis from server.");
       }
@@ -430,8 +526,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
     if (parseInt(formData.FastingBS) !== 0 && parseInt(formData.FastingBS) !== 1) {
       Alert.alert("Error", "FastingBS must be 0 or 1.");
-      return;
-    }
+      return
+      }
 
     try {
       setIsSubmitting(true);
@@ -478,9 +574,10 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       setIsSubmitting(false);
     }
   };
+
   const startRecording = async () => {
     try {
-      setDiagnosis(null);
+      setAudioDiagnosis(null);  // Clear previous audio result
       setIsRecording(true);
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -493,6 +590,31 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     } catch (error) {
       Alert.alert("Error", "Failed to start recording: " + error.message);
       setIsRecording(false);
+    }
+  };
+
+  // Helper function to generate medicines based on risk level (similar to patient search)
+  const getMedicinesFromRisk = (riskLevel) => {
+    switch (riskLevel.toLowerCase()) {
+      case 'high risk':
+        return [
+          'Aspirin (daily low-dose)',
+          'Statins (e.g., Atorvastatin for cholesterol management)',
+          'Beta-blockers (e.g., Metoprolol for heart rate control)',
+          'Consult cardiologist immediately',
+        ];
+      case 'low risk':
+        return [
+          'No immediate medication required',
+          'Maintain healthy lifestyle (diet, exercise)',
+          'Regular check-ups recommended',
+        ];
+      default:
+        return [
+          'Lifestyle modifications (low-sodium diet, moderate exercise)',
+          'Aspirin (as needed for prevention)',
+          'Follow up with physician for monitoring',
+        ];
     }
   };
 
@@ -518,7 +640,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
       const fileParts = uri.split("/");
       const fileName = fileParts[fileParts.length - 1];
-      const fileType = "audio/m4a";
+      const fileType = "audio/m4a";  // Or detect based on platform
 
       const formDataToSend = new FormData();
       formDataToSend.append("audioFile", {
@@ -539,14 +661,41 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       );
 
       if (response.status === 200 && response.data) {
-        setDiagnosis(response.data);
+        // Transform API response to match UI format (similar to patient diagnosis)
+        const apiData = response.data;
+        const currentDate = new Date().toISOString().split('T')[0];
+
+        // Extract symptoms from features_extracted (exclude transcript if duplicated)
+        const features = apiData.features_extracted || {};
+        const symptoms = Object.entries(features)
+          .filter(([key]) => key !== 'transcript')  // Exclude transcript if present in features
+          .map(([key, value]) => `${key}: ${value}`)
+          .filter(item => item !== 'transcript: undefined');  // Clean up
+
+        // Prediction string
+        const predictionStr = `${apiData.risk_level} (Probability: ${(apiData.probability * 100).toFixed(1)}%)`;
+
+        // Medicines based on risk
+        const medicines = getMedicinesFromRisk(apiData.risk_level);
+
+        const transformedAudio = {
+          date: currentDate,
+          symptoms: symptoms.length > 0 ? symptoms : ['No specific details extracted from transcript.'],
+          transcript: apiData.transcript || 'Transcript not available.',
+          prediction: predictionStr,
+          model_used: apiData.model_used || 'Unknown Model',
+          medicines,
+        };
+
+        setAudioDiagnosis(transformedAudio);
       } else {
         Alert.alert("Error", "Failed to get diagnosis from server.");
       }
     } catch (error) {
+      console.error('Audio upload error:', error);
       Alert.alert(
         "Upload Error",
-        error.response?.data || error.message || "Something went wrong!"
+        error.response?.data?.error || error.message || "Something went wrong!"
       );
     } finally {
       setIsUploading(false);
@@ -554,8 +703,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-    const renderBlock = ({ item }) => {
-    let content = diagnosis ? diagnosis[item.key] : null;
+  const renderBlock = ({ item }) => {
+    let content = textDiagnosis ? textDiagnosis[item.key] : null;
 
     if (Array.isArray(content)) {
       content = content.length > 0 ? content.join(", ") : "N/A";
@@ -621,13 +770,41 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           {isUploading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#5A81F8" />
-              <Text style={styles.loadingText}>Analyzing...</Text>
+              <Text style={styles.loadingText}>Analyzing Audio...</Text>
             </View>
           )}
         </View>
 
-        {/* Audio/Text Diagnosis Results */}
-        {diagnosis && (
+        {/* Audio Diagnosis Results (New: Render transformed audio response) */}
+        {audioDiagnosis && (
+          <View style={{ marginBottom: 30 }}>
+            {renderAudioDiagnosis(audioDiagnosis)}
+          </View>
+        )}
+
+        {/* Text Search Section (Optional: If you have text analysis) */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Text Analysis</Text>
+          <Text style={styles.sectionSubtitle}>Enter text for quick analysis (if supported).</Text>
+        </View>
+        <View style={styles.searchSection}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Enter symptoms or description..."
+            value={searchText}
+            onChangeText={setSearchText}
+            multiline={true}
+            numberOfLines={3}
+          />
+          <TouchableOpacity
+            style={styles.searchButton}
+            onPress={handleSearch}
+            disabled={isUploading || !searchText.trim()}
+          >
+            <Ionicons name="search" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
+        {textDiagnosis && (
           <View style={{ marginBottom: 20 }}>
             {DATA_BLOCKS.map((block) => renderBlock({ item: block }))}
           </View>
@@ -1076,7 +1253,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-    collapsibleTitle: {
+  collapsibleTitle: {
     fontSize: 20,
     fontWeight: "800",
     color: "#2c3e50",
