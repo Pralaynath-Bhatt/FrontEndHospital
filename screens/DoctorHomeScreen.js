@@ -298,6 +298,14 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   // New State for Audio Patient Name
   const [audioPatientName, setAudioPatientName] = useState("");
 
+  // New States for Extracted Features Display and Editing
+  const [extractedFeatures, setExtractedFeatures] = useState(null);  // Holds features_extracted from audio
+  const [isEditingFeatures, setIsEditingFeatures] = useState(false);  // Toggle edit mode
+  const [editableFeatures, setEditableFeatures] = useState({});  // Editable copy of features
+  const [finalPatientName, setFinalPatientName] = useState("");  // Patient name for final analysis
+  const [isAnalyzing, setIsAnalyzing] = useState(false);  // For final analysis loading
+  const [analysisResult, setAnalysisResult] = useState(null);  // Result from final analysis
+
   const [formData, setFormData] = useState({
     patientName: "",
     Age: "",
@@ -526,8 +534,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
     if (parseInt(formData.FastingBS) !== 0 && parseInt(formData.FastingBS) !== 1) {
       Alert.alert("Error", "FastingBS must be 0 or 1.");
-      return
-      }
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -575,21 +583,133 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     }
   };
 
-  const startRecording = async () => {
+  // New: Handle Editing Extracted Features
+  const handleEditFeatures = () => {
+    setIsEditingFeatures(true);
+    setEditableFeatures({ ...extractedFeatures });  // Copy current features for editing
+  };
+
+  const handleSaveFeatures = () => {
+    setExtractedFeatures({ ...editableFeatures });  // Save edited features
+    setIsEditingFeatures(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditableFeatures({ ...extractedFeatures });  // Reset to original
+    setIsEditingFeatures(false);
+  };
+
+  const updateEditableFeature = (key, value) => {
+    setEditableFeatures(prev => ({ ...prev, [key]: value }));
+  };
+
+  // New: Handle Final Analysis (Hits /patient/{name}/predictions)
+  const handleFinalAnalyze = async () => {
+    if (!finalPatientName.trim()) {
+      Alert.alert("Error", "Please enter the patient's name for analysis.");
+      return;
+    }
+    if (!extractedFeatures) {
+      Alert.alert("Error", "No features available for analysis. Please record audio first.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+
     try {
-      setAudioDiagnosis(null);  // Clear previous audio result
-      setIsRecording(true);
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      // Prepare data to send (use extracted features as inputData)
+      const patientData = [editableFeatures];  // Use editable features
+      const requestBody = {
+        patientName: finalPatientName.trim(),
+        patientData: patientData,
+      };
+
+      // First, call the predict endpoint to save and get prediction
+      const predictResponse = await axios.post(`${BASE_URL}:8080/api/heart/predict`, requestBody, {
+        headers: {
+          "Content-Type": "application/json",
+        },
       });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
+
+      if (predictResponse.status !== 200 || !predictResponse.data || predictResponse.data.length === 0) {
+        Alert.alert("Error", "Failed to save and predict. Please try again.");
+        return;
+      }
+
+      // Now, fetch the predictions for the patient (this saves and returns the latest)
+      const fetchResponse = await axios.get(
+        `${BASE_URL}:8080/api/patient/${encodeURIComponent(finalPatientName.trim())}/predictions`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        }
       );
-      setRecording(recording);
+
+      if (fetchResponse.status === 200 && fetchResponse.data && Array.isArray(fetchResponse.data)) {
+        // Transform the latest prediction (assuming the endpoint returns the list, take the most recent)
+        const predictions = fetchResponse.data.filter(pred => pred && pred.date && pred.riskLevel);
+        if (predictions.length > 0) {
+          const latestPrediction = predictions.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+          const inputData = latestPrediction.inputData || {};
+          const symptoms = [
+            `Age: ${inputData.Age || 'N/A'}`,
+            `Sex: ${inputData.Sex === 'M' ? 'Male' : inputData.Sex === 'F' ? 'Female' : 'N/A'}`,
+            `Chest Pain Type: ${inputData.ChestPainType || 'N/A'}`,
+            `Resting BP: ${inputData.RestingBP || 'N/A'} mm Hg`,
+            `Cholesterol: ${inputData.Cholesterol || 'N/A'} mg/dl`,
+            `Fasting BS: ${inputData.FastingBS === '1' ? 'High (>120 mg/dl)' : 'Normal'}`,
+            `Resting ECG: ${inputData.RestingECG || 'N/A'}`,
+            `Max HR: ${inputData.MaxHR || 'N/A'}`,
+            `Exercise Angina: ${inputData.ExerciseAngina === 'Y' ? 'Yes' : 'No'}`,
+            `Oldpeak: ${inputData.Oldpeak || 'N/A'} (ST depression)`,
+            `ST Slope: ${inputData.ST_Slope || 'N/A'}`,
+          ].filter(s => !s.includes('N/A'));
+
+          const riskLevel = latestPrediction.riskLevel || 'Unknown';
+          const probability = ((latestPrediction.probability || 0) * 100).toFixed(1);
+          const predictionStr = `Heart Disease ${riskLevel} (${probability}%)`;
+
+          let medicines = [];
+          switch (riskLevel.toLowerCase()) {
+            case 'high':
+              medicines = ['Aspirin (daily)', 'Statins (for cholesterol)', 'Beta-blockers (for heart rate)'];
+              break;
+            case 'medium':
+              medicines = ['Aspirin (as needed)', 'Lifestyle changes recommended'];
+              break;
+            case 'low':
+            case 'negative':
+              medicines = ['No immediate medication; maintain healthy lifestyle'];
+              break;
+            default:
+              medicines = ['Consult a doctor for recommendations'];
+          }
+
+          const transformedResult = {
+            date: new Date(latestPrediction.date).toISOString().split('T')[0],
+            symptoms: symptoms.length > 0 ? symptoms : ['No detailed inputs recorded'],
+            prediction: predictionStr,
+            medicines,
+          };
+
+          setAnalysisResult(transformedResult);
+        } else {
+          Alert.alert("Error", "No predictions found after analysis.");
+        }
+      } else {
+        Alert.alert("Error", "Failed to fetch analysis results.");
+      }
     } catch (error) {
-      Alert.alert("Error", "Failed to start recording: " + error.message);
-      setIsRecording(false);
+      console.error('Final analysis error:', error);
+      Alert.alert(
+        "Analysis Error",
+        error.response?.data?.message || error.message || "Something went wrong during analysis."
+      );
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -615,6 +735,25 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           'Aspirin (as needed for prevention)',
           'Follow up with physician for monitoring',
         ];
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      setAudioDiagnosis(null);
+      setExtractedFeatures(null);  // Clear previous features
+      setIsRecording(true);
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY
+      );
+      setRecording(recording);
+    } catch (error) {
+      Alert.alert("Error", "Failed to start recording: " + error.message);
+      setIsRecording(false);
     }
   };
 
@@ -648,7 +787,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         name: fileName,
         type: fileType,
       });
-      formDataToSend.append("patientName", audioPatientName.trim());
 
       const response = await axios.post(
         `${BASE_URL}:8080/api/audio/predict`,
@@ -661,29 +799,25 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       );
 
       if (response.status === 200 && response.data) {
-        // Transform API response to match UI format (similar to patient diagnosis)
+        // Set extracted features for display/editing
+        setExtractedFeatures(response.data.features_extracted || {});
+        setEditableFeatures(response.data.features_extracted || {});
+        // Optionally, set audioDiagnosis if you want to show the full response
         const apiData = response.data;
         const currentDate = new Date().toISOString().split('T')[0];
-
-        // Extract symptoms from features_extracted (exclude transcript if duplicated)
-        const features = apiData.features_extracted || {};
-        const symptoms = Object.entries(features)
-          .filter(([key]) => key !== 'transcript')  // Exclude transcript if present in features
+        const symptoms = Object.entries(apiData.features_extracted || {})
           .map(([key, value]) => `${key}: ${value}`)
-          .filter(item => item !== 'transcript: undefined');  // Clean up
+          .filter(item => item !== 'transcript: undefined');
 
-        // Prediction string
-        const predictionStr = `${apiData.risk_level} (Probability: ${(apiData.probability * 100).toFixed(1)}%)`;
-
-        // Medicines based on risk
-        const medicines = getMedicinesFromRisk(apiData.risk_level);
+        const predictionStr = `Processing complete. Features extracted.`;
+        const medicines = [];
 
         const transformedAudio = {
           date: currentDate,
-          symptoms: symptoms.length > 0 ? symptoms : ['No specific details extracted from transcript.'],
+          symptoms: symptoms.length > 0 ? symptoms : ['No details extracted.'],
           transcript: apiData.transcript || 'Transcript not available.',
           prediction: predictionStr,
-          model_used: apiData.model_used || 'Unknown Model',
+          model_used: 'Audio Processing',
           medicines,
         };
 
@@ -735,7 +869,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
 
         {/* Audio Recording Section */}
         <View style={styles.recordSection}>
-          {/* New: Patient Name Input for Audio */}
+          {/* Patient Name Input for Audio */}
           <Text style={styles.label}>Patient Name for Audio Recording</Text>
           <TextInput
             style={styles.input}
@@ -775,38 +909,262 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           )}
         </View>
 
-        {/* Audio Diagnosis Results (New: Render transformed audio response) */}
-        {audioDiagnosis && (
-          <View style={{ marginBottom: 30 }}>
-            {renderAudioDiagnosis(audioDiagnosis)}
+        {/* Extracted Features Display and Edit Section */}
+        {extractedFeatures && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Extracted Features from Audio</Text>
+            <Text style={styles.sectionSubtitle}>Review and edit the extracted patient details.</Text>
+
+            {isEditingFeatures ? (
+              <View style={styles.editForm}>
+                {/* Age */}
+                <Text style={styles.label}>Age</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter age"
+                  keyboardType="numeric"
+                  value={editableFeatures.Age?.toString() || ""}
+                  onChangeText={(value) => updateEditableFeature("Age", parseInt(value) || 50)}
+                />
+
+                {/* Sex */}
+                <Text style={styles.label}>Sex</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editableFeatures.Sex || "M"}
+                    onValueChange={(value) => updateEditableFeature("Sex", value)}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Male (M)" value="M" />
+                    <Picker.Item label="Female (F)" value="F" />
+                  </Picker>
+                </View>
+
+                {/* ChestPainType */}
+                <Text style={styles.label}>Chest Pain Type</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editableFeatures.ChestPainType || "ATA"}
+                    onValueChange={(value) => updateEditableFeature("ChestPainType", value)}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="ATA (Asymptomatic)" value="ATA" />
+                    <Picker.Item label="NAP (Non-Anginal Pain)" value="NAP" />
+                    <Picker.Item label="ASY (Atypical Angina)" value="ASY" />
+                    <Picker.Item label="TA (Typical Angina)" value="TA" />
+                  </Picker>
+                </View>
+
+                {/* RestingBP */}
+                <Text style={styles.label}>Resting Blood Pressure (mm Hg)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter resting BP"
+                  keyboardType="numeric"
+                  value={editableFeatures.RestingBP?.toString() || ""}
+                  onChangeText={(value) => updateEditableFeature("RestingBP", parseInt(value) || 130)}
+                />
+
+                {/* Cholesterol */}
+                <Text style={styles.label}>Cholesterol (mg/dl)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter cholesterol"
+                  keyboardType="numeric"
+                  value={editableFeatures.Cholesterol?.toString() || ""}
+                  onChangeText={(value) => updateEditableFeature("Cholesterol", parseInt(value) || 200)}
+                />
+
+                {/* FastingBS */}
+                <Text style={styles.label}>Fasting Blood Sugar (120 mg/dl)</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editableFeatures.FastingBS?.toString() || "0"}
+                    onValueChange={(value) => updateEditableFeature("FastingBS", parseInt(value))}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="No (0)" value="0" />
+                    <Picker.Item label="Yes (1)" value="1" />
+                  </Picker>
+                </View>
+
+                {/* RestingECG */}
+                <Text style={styles.label}>Resting ECG</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editableFeatures.RestingECG || "Normal"}
+                    onValueChange={(value) => updateEditableFeature("RestingECG", value)}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Normal" value="Normal" />
+                    <Picker.Item label="ST" value="ST" />
+                    <Picker.Item label="LVH" value="LVH" />
+                  </Picker>
+                </View>
+
+                {/* MaxHR */}
+                <Text style={styles.label}>Maximum Heart Rate Achieved</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter max HR"
+                  keyboardType="numeric"
+                  value={editableFeatures.MaxHR?.toString() || ""}
+                  onChangeText={(value) => updateEditableFeature("MaxHR", parseInt(value) || 150)}
+                />
+
+                {/* ExerciseAngina */}
+                <Text style={styles.label}>Exercise Induced Angina</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editableFeatures.ExerciseAngina || "N"}
+                    onValueChange={(value) => updateEditableFeature("ExerciseAngina", value)}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="No (N)" value="N" />
+                                        <Picker.Item label="Yes (Y)" value="Y" />
+                  </Picker>
+                </View>
+
+                {/* Oldpeak */}
+                <Text style={styles.label}>Oldpeak (ST depression)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter oldpeak"
+                  keyboardType="decimal-pad"
+                  value={editableFeatures.Oldpeak?.toString() || ""}
+                  onChangeText={(value) => updateEditableFeature("Oldpeak", parseFloat(value) || 1.0)}
+                />
+
+                {/* ST_Slope */}
+                <Text style={styles.label}>ST Slope</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={editableFeatures.ST_Slope || "Up"}
+                    onValueChange={(value) => updateEditableFeature("ST_Slope", value)}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Up" value="Up" />
+                    <Picker.Item label="Flat" value="Flat" />
+                    <Picker.Item label="Down" value="Down" />
+                  </Picker>
+                </View>
+
+                {/* Edit Buttons */}
+                <View style={styles.buttonRow}>
+                  <TouchableOpacity
+                    style={[styles.editButton, { backgroundColor: "#2ecc71" }]}
+                    onPress={handleSaveFeatures}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.editButtonText}>Save Changes</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editButton, { backgroundColor: "#e74c3c" }]}
+                    onPress={handleCancelEdit}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.editButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.featuresDisplay}>
+                <Text style={styles.featuresText}>
+                  Age: {extractedFeatures.Age || "N/A"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Sex: {extractedFeatures.Sex === "M" ? "Male" : extractedFeatures.Sex === "F" ? "Female" : "N/A"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Chest Pain Type: {extractedFeatures.ChestPainType || "N/A"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Resting BP: {extractedFeatures.RestingBP || "N/A"} mm Hg
+                </Text>
+                <Text style={styles.featuresText}>
+                  Cholesterol: {extractedFeatures.Cholesterol || "N/A"} mg/dl
+                </Text>
+                <Text style={styles.featuresText}>
+                  Fasting BS: {extractedFeatures.FastingBS === 1 ? "High (>120 mg/dl)" : "Normal"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Resting ECG: {extractedFeatures.RestingECG || "N/A"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Max HR: {extractedFeatures.MaxHR || "N/A"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Exercise Angina: {extractedFeatures.ExerciseAngina === "Y" ? "Yes" : "No"}
+                </Text>
+                <Text style={styles.featuresText}>
+                  Oldpeak: {extractedFeatures.Oldpeak || "N/A"} (ST depression)
+                </Text>
+                <Text style={styles.featuresText}>
+                  ST Slope: {extractedFeatures.ST_Slope || "N/A"}
+                </Text>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={handleEditFeatures}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.editButtonText}>Edit Features</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Final Analysis Section */}
+            <View style={styles.finalAnalysisSection}>
+              <Text style={styles.label}>Patient Name for Final Analysis</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter patient name (e.g., John Doe)"
+                value={finalPatientName}
+                onChangeText={setFinalPatientName}
+                editable={!isAnalyzing}
+              />
+              <TouchableOpacity
+                style={[styles.submitButtonShadow, isAnalyzing && styles.disabledButton]}
+                onPress={handleFinalAnalyze}
+                activeOpacity={0.85}
+                disabled={isAnalyzing || !finalPatientName.trim()}
+              >
+                <LinearGradient
+                  colors={isAnalyzing ? ["#ccc", "#ccc"] : ["#5A81F8", "#3b62ce"]}
+                  style={styles.submitButton}
+                  start={{ x: 0.0, y: 0.0 }}
+                  end={{ x: 1.0, y: 1.0 }}
+                >
+                  <Ionicons
+                    name={isAnalyzing ? "hourglass" : "analytics"}
+                    size={24}
+                    color="white"
+                  />
+                  <Text style={styles.submitButtonText}>
+                    {isAnalyzing ? "Analyzing..." : "Final Analyze & Save"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              {isAnalyzing && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#5A81F8" />
+                  <Text style={styles.loadingText}>Performing final analysis...</Text>
+                </View>
+              )}
+            </View>
           </View>
         )}
 
-        {/* Text Search Section (Optional: If you have text analysis) */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Text Analysis</Text>
-          <Text style={styles.sectionSubtitle}>Enter text for quick analysis (if supported).</Text>
-        </View>
-        <View style={styles.searchSection}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Enter symptoms or description..."
-            value={searchText}
-            onChangeText={setSearchText}
-            multiline={true}
-            numberOfLines={3}
-          />
-          <TouchableOpacity
-            style={styles.searchButton}
-            onPress={handleSearch}
-            disabled={isUploading || !searchText.trim()}
-          >
-            <Ionicons name="search" size={24} color="white" />
-          </TouchableOpacity>
-        </View>
-        {textDiagnosis && (
-          <View style={{ marginBottom: 20 }}>
-            {DATA_BLOCKS.map((block) => renderBlock({ item: block }))}
+        {/* Analysis Result Display */}
+        {analysisResult && (
+          <View style={{ marginBottom: 30 }}>
+            {renderPatientDiagnosisItem({ item: analysisResult })}
+          </View>
+        )}
+
+        {/* Audio Diagnosis Results (New: Render transformed audio response) */}
+        {audioDiagnosis && !extractedFeatures && (
+          <View style={{ marginBottom: 30 }}>
+            {renderAudioDiagnosis(audioDiagnosis)}
           </View>
         )}
 
@@ -1288,6 +1646,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontStyle: "italic",
   },
+  sectionContainer: {
+    marginBottom: 30,
+    borderRadius: 20,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#d6e0ff",
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+    padding: 20,
+  },
   formSection: {
     marginBottom: 30,
   },
@@ -1437,7 +1808,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
   },
-
   // New Styles for Patient Search (Error, No Data, Retry)
   errorContainer: {
     justifyContent: "center",
@@ -1496,6 +1866,49 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     lineHeight: 22,
     fontWeight: "400",
+  },
+  // New Styles for Extracted Features
+  editForm: {
+    marginTop: 20,
+  },
+  featuresDisplay: {
+    marginTop: 20,
+  },
+  featuresText: {
+    fontSize: 16,
+    color: "#34495e",
+    marginBottom: 8,
+    fontWeight: "600",
+  },
+  editButton: {
+    backgroundColor: "#2980b9",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignSelf: "center",
+    marginTop: 20,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  editButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginTop: 20,
+  },
+  finalAnalysisSection: {
+    marginTop: 30,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#d6e0ff",
   },
 });
 
