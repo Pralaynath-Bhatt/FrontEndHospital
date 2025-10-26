@@ -138,6 +138,52 @@ const renderDiagnosisItem = ({ item }) => {
           <Text style={styles.listItemText}>No recommendations available</Text>
         )}
       </DiagnosisSection>
+
+      {/* New sections for transcript, summary, and de-identified transcript if available */}
+      {item.transcript && (
+        <DiagnosisSection
+          title="Audio Transcript"
+          iconName="microphone"
+          iconColor="#9b59b6"
+          isExpandedDefault={false}
+        >
+          <View style={styles.listItemContainer}>
+            <Text style={[styles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {item.transcript}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
+
+      {item.summary && (
+        <DiagnosisSection
+          title="Summary"
+          iconName="file-alt"
+          iconColor="#16a085"
+          isExpandedDefault={false}
+        >
+          <View style={styles.listItemContainer}>
+            <Text style={[styles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {item.summary}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
+
+      {item.deIdentifiedTranscript && (
+        <DiagnosisSection
+          title="De-identified Transcript"
+          iconName="shield-alt"
+          iconColor="#f39c12"
+          isExpandedDefault={false}
+        >
+          <View style={styles.listItemContainer}>
+            <Text style={[styles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {item.deIdentifiedTranscript}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
     </Animated.View>
   );
 };
@@ -249,6 +295,9 @@ export default function PatientHomeScreen({ route, navigation, onLogout }) {
                 symptoms: symptomsList,
                 prediction: predictionStr,
                 medicines,
+                transcript: prediction.transcript || '',
+                summary: prediction.summary || '',
+                deIdentifiedTranscript: prediction.deIdentifiedTranscript || '',
               };
             })
             .sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -524,7 +573,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'System',
   },
-
   // Section styles
   sectionContainer: {
     marginBottom: 20,

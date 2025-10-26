@@ -169,6 +169,52 @@ const renderPatientDiagnosisItem = ({ item }) => {
           <Text style={patientStyles.listItemText}>No recommendations available</Text>
         )}
       </DiagnosisSection>
+
+      {/* New sections for transcript, summary, and de-identified transcript if available */}
+      {item.transcript && (
+        <DiagnosisSection
+          title="Audio Transcript"
+          iconName="microphone"
+          iconColor="#9b59b6"
+          isExpandedDefault={false}
+        >
+          <View style={patientStyles.listItemContainer}>
+            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {item.transcript}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
+
+      {item.summary && (
+        <DiagnosisSection
+          title="Summary"
+          iconName="file-alt"
+          iconColor="#16a085"
+          isExpandedDefault={false}
+        >
+          <View style={patientStyles.listItemContainer}>
+            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {item.summary}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
+
+      {item.deIdentifiedTranscript && (
+        <DiagnosisSection
+          title="De-identified Transcript"
+          iconName="shield-alt"
+          iconColor="#f39c12"
+          isExpandedDefault={false}
+        >
+          <View style={patientStyles.listItemContainer}>
+            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {item.deIdentifiedTranscript}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
     </Animated.View>
   );
 };
@@ -223,6 +269,38 @@ const renderAudioDiagnosis = (audioResult) => {
           </Text>
         </View>
       </DiagnosisSection>
+
+      {/* New section for Summary */}
+      {audioResult.summary && (
+        <DiagnosisSection
+          title="Summary"
+          iconName="file-alt"
+          iconColor="#16a085"
+          isExpandedDefault={false}
+        >
+          <View style={patientStyles.listItemContainer}>
+            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {audioResult.summary}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
+
+      {/* New section for De-identified Transcript */}
+      {audioResult.deIdentifiedTranscript && (
+        <DiagnosisSection
+          title="De-identified Transcript"
+          iconName="shield-alt"
+          iconColor="#f39c12"
+          isExpandedDefault={false}
+        >
+          <View style={patientStyles.listItemContainer}>
+            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
+              {audioResult.deIdentifiedTranscript}
+            </Text>
+          </View>
+        </DiagnosisSection>
+      )}
 
       <DiagnosisSection
         title="Heart Disease Prediction"
@@ -389,7 +467,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         const currentDate = new Date().toISOString().split("T")[0];
         const symptoms = Object.entries(apiData.features_extracted || {})
           .map(([key, value]) => `${key}: ${value}`)
-          .filter((item) => item !== "transcript: undefined");
+          .filter((item) => item !== "transcript: ");
 
         const predictionStr = `Processing complete. Features extracted.`;
         const medicines = [];
@@ -398,6 +476,8 @@ export default function AudioDiagnosisScreen({ onLogout }) {
           date: currentDate,
           symptoms: symptoms.length > 0 ? symptoms : ["No details extracted."],
           transcript: apiData.transcript || "Transcript not available.",
+          summary: apiData.summary || "",
+          deIdentifiedTranscript: apiData.de_identified_transcript || "",
           prediction: predictionStr,
           model_used: "Audio Processing",
           medicines,
@@ -427,7 +507,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
         return;
       }
     }
-    if (![0, 1].includes(parseInt(formData.FastingBS))) {
+        if (![0, 1].includes(parseInt(formData.FastingBS))) {
       Alert.alert("Error", "FastingBS must be 0 or 1.");
       return;
     }
@@ -488,7 +568,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     setIsEditingFeatures(false);
   };
 
-    const handleFinalAnalyze = async () => {
+  const handleFinalAnalyze = async () => {
     if (!finalPatientName.trim()) {
       Alert.alert("Error", "Please enter the patient's name for analysis.");
       return;
@@ -590,121 +670,128 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       setIsAnalyzing(false);
     }
   };
-  const handlePatientSearch = async () => {
-    const searchName = patientSearchText.trim();
-    if (!searchName) {
-      Alert.alert("Error", "Please enter a patient name.");
-      return;
-    }
 
-    setFormData((prev) => ({ ...prev, patientName: searchName }));
-    setPatientLoading(true);
-    setPatientError(null);
-    setPatientDiagnosisList([]);
 
-    try {
-      await new Promise((res) => setTimeout(res, 500)); // small delay for UX
+const handlePatientSearch = async () => {
+  const searchName = patientSearchText.trim();
+  if (!searchName) {
+    Alert.alert("Error", "Please enter a patient name.");
+    return;
+  }
 
-      const response = await axios.get(
-        `${BASE_URL}:8080/api/patient/${encodeURIComponent(searchName)}/predictions`,
-        { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-      );
+  setFormData((prev) => ({ ...prev, patientName: searchName }));
+  setPatientLoading(true);
+  setPatientError(null);
+  setPatientDiagnosisList([]);
 
-      if (response.status === 200 && Array.isArray(response.data)) {
-        const transformedData = response.data
-          .filter((pred) => pred && pred.date && pred.riskLevel)
-          .map((prediction) => {
-            let date;
-            if (typeof prediction.date === "string") {
-              date = new Date(prediction.date).toISOString().split("T")[0];
-            } else {
-              date = new Date().toISOString().split("T")[0];
-            }
+  try {
+    await new Promise((res) => setTimeout(res, 500)); // small delay for UX
 
-            const inputData = prediction.inputData || {};
-            const symptoms = [
-              `Age: ${inputData.Age || "N/A"}`,
-              `Sex: ${
-                inputData.Sex === "M"
-                  ? "Male"
-                  : inputData.Sex === "F"
-                  ? "Female"
-                  : "N/A"
-              }`,
-              `Chest Pain Type: ${inputData.ChestPainType || "N/A"}`,
-              `Resting BP: ${inputData.RestingBP || "N/A"} mm Hg`,
-              `Cholesterol: ${inputData.Cholesterol || "N/A"} mg/dl`,
-              `Fasting BS: ${
-                inputData.FastingBS === "1" ? "High (>120 mg/dl)" : "Normal"
-              }`,
-              `Resting ECG: ${inputData.RestingECG || "N/A"}`,
-              `Max HR: ${inputData.MaxHR || "N/A"}`,
-              `Exercise Angina: ${
-                inputData.ExerciseAngina === "Y" ? "Yes" : "No"
-              }`,
-              `Oldpeak: ${inputData.Oldpeak || "N/A"} (ST depression)`,
-              `ST Slope: ${inputData.ST_Slope || "N/A"}`,
-            ].filter((s) => !s.includes("N/A"));
+    const response = await axios.get(
+      `${BASE_URL}:8080/api/patient/${encodeURIComponent(searchName)}/predictions`,
+      { headers: { "Content-Type": "application/json" }, timeout: 10000 }
+    );
 
-            const riskLevel = prediction.riskLevel || "Unknown";
-            const probability = ((prediction.probability || 0) * 100).toFixed(1);
-            const predictionStr = `Heart Disease ${riskLevel} (${probability}%)`;
+    if (response.status === 200 && Array.isArray(response.data)) {
+      const transformedData = response.data
+        .filter((pred) => pred && pred.date && pred.riskLevel)
+        .map((prediction) => {
+          let date;
+          if (typeof prediction.date === "string") {
+            date = new Date(prediction.date).toISOString().split("T")[0];
+          } else {
+            date = new Date().toISOString().split("T")[0];
+          }
 
-            let medicines = [];
-            switch (riskLevel.toLowerCase()) {
-              case "high":
-                medicines = [
-                  "Aspirin (daily)",
-                  "Statins (for cholesterol)",
-                  "Beta-blockers (for heart rate)",
-                ];
-                break;
-              case "medium":
-                medicines = ["Aspirin (as needed)", "Lifestyle changes recommended"];
-                break;
-              case "low":
-              case "negative":
-                medicines = ["No immediate medication; maintain healthy lifestyle"];
-                break;
-              default:
-                medicines = ["Consult a doctor for recommendations"];
-            }
+          const inputData = prediction.inputData || {};
+          const symptoms = [
+            `Age: ${inputData.Age || "N/A"}`,
+            `Sex: ${
+              inputData.Sex === "M"
+                ? "Male"
+                : inputData.Sex === "F"
+                ? "Female"
+                : "N/A"
+            }`,
+            `Chest Pain Type: ${inputData.ChestPainType || "N/A"}`,
+            `Resting BP: ${inputData.RestingBP || "N/A"} mm Hg`,
+            `Cholesterol: ${inputData.Cholesterol || "N/A"} mg/dl`,
+            `Fasting BS: ${
+              inputData.FastingBS === "1" ? "High (>120 mg/dl)" : "Normal"
+            }`,
+            `Resting ECG: ${inputData.RestingECG || "N/A"}`,
+            `Max HR: ${inputData.MaxHR || "N/A"}`,
+            `Exercise Angina: ${
+              inputData.ExerciseAngina === "Y" ? "Yes" : "No"
+            }`,
+            `Oldpeak: ${inputData.Oldpeak || "N/A"} (ST depression)`,
+            `ST Slope: ${inputData.ST_Slope || "N/A"}`,
+          ].filter((s) => !s.includes("N/A"));
 
-            return {
-              date,
-              symptoms,
-              prediction: predictionStr,
-              medicines,
-            };
-          })
-          .sort((a, b) => new Date(b.date) - new Date(a.date));
+          const riskLevel = prediction.riskLevel || "Unknown";
+          const probability = ((prediction.probability || 0) * 100).toFixed(1);
+          const predictionStr = `Heart Disease ${riskLevel} (${probability}%)`;
 
-        setPatientDiagnosisList(transformedData);
-      } else {
-        setPatientDiagnosisList([]);
-      }
-    } catch (error) {
-      let errorMsg = "Failed to fetch patient history.";
-      if (error.response) {
-        if (error.response.status === 404) {
-          errorMsg = `No predictions found for patient "${searchName}".`;
-        } else if (error.response.data) {
-          errorMsg =
-            typeof error.response.data === "string"
-              ? error.response.data
-              : error.response.data.message || errorMsg;
-        }
-      } else if (error.code === "ECONNABORTED") {
-        errorMsg = "Request timed out. Please check your connection.";
-      } else {
-        errorMsg = error.message || errorMsg;
-      }
-      setPatientError(errorMsg);
+          let medicines = [];
+          switch (riskLevel.toLowerCase()) {
+            case "high":
+              medicines = [
+                "Aspirin (daily)",
+                "Statins (for cholesterol)",
+                "Beta-blockers (for heart rate)",
+              ];
+              break;
+            case "medium":
+              medicines = ["Aspirin (as needed)", "Lifestyle changes recommended"];
+              break;
+            case "low":
+            case "negative":
+              medicines = ["No immediate medication; maintain healthy lifestyle"];
+              break;
+            default:
+              medicines = ["Consult a doctor for recommendations"];
+          }
+
+          return {
+            date,
+            symptoms,
+            prediction: predictionStr,
+            medicines,
+            transcript: prediction.transcript || "",
+            summary: prediction.summary || "",
+            deIdentifiedTranscript: prediction.deIdentifiedTranscript || "",
+          };
+        })
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      setPatientDiagnosisList(transformedData);
+    } else {
       setPatientDiagnosisList([]);
-    } finally {
-      setPatientLoading(false);
     }
-  };
+  } catch (error) {
+    let errorMsg = "Failed to fetch patient history.";
+    if (error.response) {
+      if (error.response.status === 404) {
+        errorMsg = `No predictions found for patient "${searchName}".`;
+      } else if (error.response.data) {
+        errorMsg =
+          typeof error.response.data === "string"
+            ? error.response.data
+            : error.response.data.message || errorMsg;
+      }
+    } else if (error.code === "ECONNABORTED") {
+      errorMsg = "Request timed out. Please check your connection.";
+    } else {
+      errorMsg = error.message || errorMsg;
+    }
+    setPatientError(errorMsg);
+    setPatientDiagnosisList([]);
+  } finally {
+    setPatientLoading(false);
+  }
+};
+
+
 
   const handlePatientRetry = () => {
     setPatientError(null);
@@ -782,14 +869,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
               </Text>
             </ScrollView>
 
-            {/* Display Summary */}
-            <Text style={styles.label}>Summary</Text>
-            <ScrollView style={styles.textDisplayContainer} showsVerticalScrollIndicator={true}>
-              <Text style={styles.textDisplay}>
-                {summary || "No summary available."}
-              </Text>
-            </ScrollView>
-
             {/* Display De-identified Transcript */}
             <Text style={styles.label}>De-identified Transcript</Text>
             <ScrollView style={styles.textDisplayContainer} showsVerticalScrollIndicator={true}>
@@ -798,6 +877,13 @@ export default function AudioDiagnosisScreen({ onLogout }) {
               </Text>
             </ScrollView>
 
+            {/* Display Summary */}
+            <Text style={styles.label}>Summary</Text>
+            <ScrollView style={styles.textDisplayContainer} showsVerticalScrollIndicator={true}>
+              <Text style={styles.textDisplay}>
+                {summary || "No summary available."}
+              </Text>
+            </ScrollView>
             {/* Features Extracted (with edit functionality) */}
             {isEditingFeatures ? (
               <View style={styles.editForm}>
@@ -1077,7 +1163,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
             editable={!isSubmitting}
           />
 
-                    {/* Age */}
+          {/* Age */}
           <Text style={styles.label}>Age</Text>
           <TextInput
             style={styles.input}
@@ -1407,7 +1493,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  disabledButton: {
+    disabledButton: {
     backgroundColor: "#a8b9d6",
     shadowOpacity: 0,
     elevation: 0,
@@ -1928,5 +2014,3 @@ const patientStyles = StyleSheet.create({
     letterSpacing: 0.4,
   },
 });
-
-           
