@@ -507,6 +507,9 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       const requestBody = {
         patientName: finalPatientName.trim(),
         patientData,
+        transcript,
+        deIdentifiedTranscript,
+        summary,
       };
 
       const predictResponse = await axios.post(`${BASE_URL}:8080/api/heart/predict`, requestBody, {
