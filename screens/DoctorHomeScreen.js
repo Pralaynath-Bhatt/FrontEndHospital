@@ -289,6 +289,11 @@ export default function AudioDiagnosisScreen({ onLogout }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
 
+  // NEW: State for additional API response fields
+  const [transcript, setTranscript] = useState("");
+  const [summary, setSummary] = useState("");
+  const [deIdentifiedTranscript, setDeIdentifiedTranscript] = useState("");
+
   const [formData, setFormData] = useState({
     patientName: "",
     Age: "",
@@ -371,8 +376,15 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       });
 
       if (response.status === 200 && response.data) {
+        // Set features_extracted
         setExtractedFeatures(response.data.features_extracted || {});
         setEditableFeatures(response.data.features_extracted || {});
+
+        // NEW: Set additional fields from API response
+        setTranscript(response.data.transcript || "");
+        setSummary(response.data.summary || "");
+        setDeIdentifiedTranscript(response.data.de_identified_transcript || "");
+
         const apiData = response.data;
         const currentDate = new Date().toISOString().split("T")[0];
         const symptoms = Object.entries(apiData.features_extracted || {})
@@ -476,7 +488,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
     setIsEditingFeatures(false);
   };
 
-  const handleFinalAnalyze = async () => {
+    const handleFinalAnalyze = async () => {
     if (!finalPatientName.trim()) {
       Alert.alert("Error", "Please enter the patient's name for analysis.");
       return;
@@ -575,7 +587,6 @@ export default function AudioDiagnosisScreen({ onLogout }) {
       setIsAnalyzing(false);
     }
   };
-
   const handlePatientSearch = async () => {
     const searchName = patientSearchText.trim();
     if (!searchName) {
@@ -760,6 +771,31 @@ export default function AudioDiagnosisScreen({ onLogout }) {
             <Text style={styles.sectionTitle}>Extracted Features from Audio</Text>
             <Text style={styles.sectionSubtitle}>Review and edit the extracted patient details.</Text>
 
+            {/* Display Transcript */}
+            <Text style={styles.label}>Transcript</Text>
+            <ScrollView style={styles.textDisplayContainer} showsVerticalScrollIndicator={true}>
+              <Text style={styles.textDisplay}>
+                {transcript || "No transcript available."}
+              </Text>
+            </ScrollView>
+
+            {/* Display Summary */}
+            <Text style={styles.label}>Summary</Text>
+            <ScrollView style={styles.textDisplayContainer} showsVerticalScrollIndicator={true}>
+              <Text style={styles.textDisplay}>
+                {summary || "No summary available."}
+              </Text>
+            </ScrollView>
+
+            {/* Display De-identified Transcript */}
+            <Text style={styles.label}>De-identified Transcript</Text>
+            <ScrollView style={styles.textDisplayContainer} showsVerticalScrollIndicator={true}>
+              <Text style={styles.textDisplay}>
+                {deIdentifiedTranscript || "No de-identified transcript available."}
+              </Text>
+            </ScrollView>
+
+            {/* Features Extracted (with edit functionality) */}
             {isEditingFeatures ? (
               <View style={styles.editForm}>
                 {/* Age */}
@@ -879,19 +915,18 @@ export default function AudioDiagnosisScreen({ onLogout }) {
                 </View>
 
                 {/* Oldpeak */}
-                <Text style={styles.label}>Old peak (ST depression)</Text>
+                <Text style={styles.label}>Oldpeak (ST depression)</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Enter oldpeak"
-                  keyboardType="numeric"    // Changed from decimal-pad to numeric
+                  keyboardType="decimal-pad"
                   value={editableFeatures.Oldpeak?.toString() || ""}
                   onChangeText={(value) => {
-                    // Allow digits and one decimal point only
                     if (/^\d*\.?\d*$/.test(value)) {
                       updateEditableFeature("Oldpeak", value === "" ? "" : parseFloat(value));
                     }
                   }}
-                  maxLength={6} // optional, limit input length
+                  maxLength={6}
                 />
 
                 {/* ST_Slope */}
@@ -1039,7 +1074,7 @@ export default function AudioDiagnosisScreen({ onLogout }) {
             editable={!isSubmitting}
           />
 
-          {/* Age */}
+                    {/* Age */}
           <Text style={styles.label}>Age</Text>
           <TextInput
             style={styles.input}
@@ -1748,6 +1783,25 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#d6e0ff",
   },
+  textDisplayContainer: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    marginBottom: 12,
+    maxHeight: 150,
+    elevation: 5,
+    shadowColor: "#2980b9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+  },
+  textDisplay: {
+    fontSize: 16,
+    color: "#34495e",
+    lineHeight: 24,
+    fontWeight: "500",
+  },
 });
 
 const patientStyles = StyleSheet.create({
@@ -1871,3 +1925,5 @@ const patientStyles = StyleSheet.create({
     letterSpacing: 0.4,
   },
 });
+
+           
