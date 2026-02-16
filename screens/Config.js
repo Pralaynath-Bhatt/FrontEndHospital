@@ -1,4 +1,3 @@
 // config.js
-const BASE_URL = "http://192.168.31.52"; // Put your current PC IP here
-
+const BASE_URL = "http://192.168.31.52";
 export default BASE_URL;

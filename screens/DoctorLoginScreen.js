@@ -1,528 +1,321 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Animated,
-  KeyboardAvoidingView,
-  SafeAreaView,
-  Platform,
-  Easing,
-} from 'react-native';
+  Dimensions,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 import BASE_URL from "./Config";
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import Modal from 'react-native-modal';
-import axios from 'axios';
+import { AuthStorage } from "./Authstorage";
 
-export default function DoctorLoginScreen({ navigation, onLogin }) {
-  const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
-  const [nameFocused, setNameFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
+const { width } = Dimensions.get("window");
+const isWeb = width > 900;
 
-  const [isModalVisible, setModalVisible] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-  const [modalIcon, setModalIcon] = useState('');
-  const [modalColor, setModalColor] = useState('');
+export default function DoctorLoginScreen({ navigation }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const [loading, setLoading] = useState(false);
-
-  // Refs
-  const passwordInputRef = useRef(null);
-
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(100)).current;
-  const headerScaleAnim = useRef(new Animated.Value(0.8)).current;
-  const nameInputAnim = useRef(new Animated.Value(1)).current;
-  const passwordInputAnim = useRef(new Animated.Value(1)).current;
-  const buttonScaleAnim = useRef(new Animated.Value(1)).current;
-  const modalScaleAnim = useRef(new Animated.Value(0.7)).current;
-
-  useEffect(() => {
-    // Initial entrance animations
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-      Animated.spring(headerScaleAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  // Input focus animations
-  const animateInputFocus = (anim, focused) => {
-    Animated.spring(anim, {
-      toValue: focused ? 1.02 : 1,
-      friction: 5,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  // Button press animation
-  const animateButtonPress = () => {
-    Animated.sequence([
-      Animated.timing(buttonScaleAnim, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(buttonScaleAnim, {
-        toValue: 1,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  // Shake animation for errors
- const triggerShake = () => {
-  // Optional: Implement shake animation on inputs or just a placeholder
-  // For now, you can leave it empty or add a console log
-  // Or animate nameInputAnim and passwordInputAnim for shake effect if you want
-  console.log("Shake triggered");
-};
-
-  // Modal animations
-  useEffect(() => {
-    if (isModalVisible) {
-      Animated.spring(modalScaleAnim, {
-        toValue: 1,
-        friction: 5,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(modalScaleAnim, {
-        toValue: 0.7,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isModalVisible]);
-
-  const toggleModal = () => {
-    setModalVisible(!isModalVisible);
-  };
-
-  const handleLoginPress = async () => {
-    // Validate inputs
-    if (!name.trim() || !password) {
-      triggerShake();
-      setModalIcon('alert-circle-outline');
-      setModalColor('#FF6347');
-      setModalMessage('Please enter your name and password.');
-      setModalVisible(true);
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert("Error", "Please enter email and password");
       return;
     }
 
-    setLoading(true);
-    animateButtonPress();
+    setIsLoading(true);
 
     try {
-      // Replace with your backend login API URL
       const response = await axios.post(`${BASE_URL}:8080/api/doctor/login`, {
-        name: name.trim(),
-        password,
+        name: email.trim(),
+        password: password.trim(),
       });
 
-      // Assuming backend returns doctor data on success
-      if (response.status === 200 && response.data) {
-        setModalIcon('check-circle-outline');
-        setModalColor('#4CAF50');
-        setModalMessage("Login successful!");
-        setModalVisible(true);
-        // Trigger navigation/state update
+      if (response.status === 200 && response.data.success) {
+        const { token, name } = response.data.data;
+        
+        // Save token and doctor data to AsyncStorage
+        const saved = await AuthStorage.saveAuth(token, { name });
+        
+        if (saved) {
+          console.log("✓ Token saved successfully");
+          console.log(`Doctor: ${name}`);
+          console.log(`Token: ${token.substring(0, 30)}...`);
+          
+          // Navigate to home screen
+          navigation.replace("DoctorHomeScreen", {
+            doctor: { name, token },
+          });
+        } else {
+          Alert.alert("Error", "Failed to save login session");
+        }
       } else {
-        triggerShake();
-        setModalIcon('alert-circle-outline');
-        setModalColor('#FF6347');
-        setModalMessage('Login failed. Please check your credentials.');
-        setModalVisible(true);
+        Alert.alert("Login Failed", "Invalid response from server");
       }
+
     } catch (error) {
-      triggerShake();
+      console.log("LOGIN ERROR:", error?.response?.data || error.message);
+      
+      let errorMessage = "Invalid credentials or server not reachable";
+      
       if (error.response) {
-        const message = error.response.data?.message || 'Login failed. Please check your credentials.';
-        setModalIcon('alert-circle-outline');
-        setModalColor('#FF6347');
-        setModalMessage(message);
-      } else {
-        setModalIcon('alert-circle-outline');
-        setModalColor('#FF6347');
-        setModalMessage('Network error. Please try again later.');
+        // Server responded with error
+        errorMessage = error.response.data?.message || error.response.data?.data || errorMessage;
+      } else if (error.request) {
+        // Request made but no response
+        errorMessage = "Server not reachable. Please check your connection.";
       }
-      setModalVisible(true);
-    }
-
-    setLoading(false);
-  };
-
-  const onModalOkPress = () => {
-    setModalVisible(false);
-    if (modalMessage === "Login successful!") {
-      if (onLogin) onLogin();
-      navigation.replace("DoctorHomeScreen"); // or your app's main patient screen
+      
+      Alert.alert("Login Failed", errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  /* ================= MOBILE ================= */
+
+  if (!isWeb) {
+    return (
+      <LinearGradient colors={["#1E3A8A", "#2563EB"]} style={{ flex: 1 }}>
+        <View style={styles.mobileContainer}>
+          <Ionicons name="medkit-outline" size={70} color="#fff" />
+          <Text style={styles.mobileTitle}>Doctor Login</Text>
+
+          <View style={styles.mobileCard}>
+            <TextInput
+              placeholder="User Name"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              editable={!isLoading}
+              autoCapitalize="none"
+            />
+
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor="#94A3B8"
+              secureTextEntry
+              style={styles.input}
+              value={password}
+              onChangeText={setPassword}
+              editable={!isLoading}
+            />
+
+            <TouchableOpacity 
+              style={[styles.loginBtn, isLoading && styles.loginBtnDisabled]} 
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.loginText}>Login</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* REGISTER LINK */}
+            <TouchableOpacity
+              onPress={() => navigation.navigate("DoctorRegister")}
+              style={{ marginTop: 18 }}
+              disabled={isLoading}
+            >
+              <Text style={{ textAlign: "center", color: "#2563EB", fontWeight: "600" }}>
+                New Doctor? Register Here
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  /* ================= WEB ================= */
 
   return (
-    <LinearGradient 
-      colors={['#667eea', '#764ba2']} 
-      style={styles.gradient}
-      start={{ x: 0, y: 0 }} 
-      end={{ x: 1, y: 1 }}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-      >
-        <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
-          <Animated.View
-            style={[
-              styles.card,
-              {
-                opacity: fadeAnim,
-                transform: [
-                  { translateY: slideAnim },
-                  { scale: headerScaleAnim }, // Apply scale to the whole card for subtle effect
-                ],
-              },
-            ]}
+    <View style={{ flex: 1 }}>
+      <LinearGradient
+        colors={["#0F172A", "#1E3A8A", "#2563EB"]}
+        style={StyleSheet.absoluteFillObject}
+      />
+
+      <View style={styles.leftContent}>
+        <Ionicons name="medkit-outline" size={70} color="#fff" />
+        <Text style={styles.webTitle}>MediChat AI</Text>
+
+        <Text style={styles.webSubtitle}>
+          Clinical decision intelligence platform for modern healthcare systems.
+        </Text>
+      </View>
+
+      <View style={styles.rightPanel}>
+        <View style={styles.webCard}>
+          <Text style={styles.webLoginTitle}>Doctor Login</Text>
+
+          <TextInput
+            placeholder="User Name"
+            style={styles.webInput}
+            value={email}
+            onChangeText={setEmail}
+            editable={!isLoading}
+            autoCapitalize="none"
+          />
+
+          <TextInput
+            placeholder="Password"
+            secureTextEntry
+            style={styles.webInput}
+            value={password}
+            onChangeText={setPassword}
+            editable={!isLoading}
+          />
+
+          <TouchableOpacity 
+            style={[styles.webLoginBtn, isLoading && styles.loginBtnDisabled]} 
+            onPress={handleLogin}
+            disabled={isLoading}
           >
-            {/* Header Icon */}
-            <Animated.View
-              style={[
-                styles.headerIconContainer,
-                {
-                  transform: [{ scale: headerScaleAnim }],
-                },
-              ]}
-            >
-              <Ionicons name="medkit-outline" size={80} color="#667eea" />
-            </Animated.View>
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.webLoginText}>Sign In</Text>
+            )}
+          </TouchableOpacity>
 
-            <Text style={styles.title}>Doctor Login</Text>
-            <Text style={styles.subtitle}>Welcome back! Please sign in to continue.</Text>
-
-            {/* Name Input */}
-            <Animated.View
-              style={[
-                styles.inputContainer,
-                {
-                  transform: [{ scale: nameInputAnim }],
-                  borderColor: nameFocused ? '#667eea' : '#ddd',
-                  backgroundColor: nameFocused ? '#f8f9ff' : '#f9f9f9',
-                },
-              ]}
-            >
-              <Ionicons name="person-outline" size={24} color={nameFocused ? '#667eea' : '#666'} style={styles.icon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Full Name"
-                placeholderTextColor="#999"
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-                editable={!loading}
-                returnKeyType="next"
-                onSubmitEditing={() => {
-                  passwordInputRef.current?.focus();
-                }}
-                onFocus={() => {
-                  setNameFocused(true);
-                  animateInputFocus(nameInputAnim, true);
-                }}
-                onBlur={() => {
-                  setNameFocused(false);
-                  animateInputFocus(nameInputAnim, false);
-                }}
-              />
-            </Animated.View>
-
-            {/* Password Input */}
-            <Animated.View
-              style={[
-                styles.inputContainer,
-                {
-                  transform: [{ scale: passwordInputAnim }],
-                  borderColor: passwordFocused ? '#667eea' : '#ddd',
-                  backgroundColor: passwordFocused ? '#f8f9ff' : '#f9f9f9',
-                },
-              ]}
-            >
-              <Ionicons name="lock-closed-outline" size={24} color={passwordFocused ? '#667eea' : '#666'} style={styles.icon} />
-              <TextInput
-                ref={passwordInputRef}
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#999"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                editable={!loading}
-                returnKeyType="done"
-                onSubmitEditing={handleLoginPress}
-                onFocus={() => {
-                  setPasswordFocused(true);
-                  animateInputFocus(passwordInputAnim, true);
-                }}
-                onBlur={() => {
-                  setPasswordFocused(false);
-                  animateInputFocus(passwordInputAnim, false);
-                }}
-              />
-            </Animated.View>
-
-            {/* Login Button */}
-            <Animated.View
-              style={{
-                transform: [{ scale: buttonScaleAnim }],
-              }}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  loading && { opacity: 0.7 },
-                ]}
-                onPress={handleLoginPress}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading ? (
-                  <View style={styles.loadingContainer}>
-                    
-                      <Ionicons name="ellipse" size={20} color="white" />
-                    
-                    <Text style={styles.loginButtonText}>Signing In...</Text>
-                  </View>
-                ) : (
-                  <View style={styles.buttonContent}>
-                    <Text style={styles.loginButtonText}>LOGIN</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </Animated.View>
-
-            {/* Links */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate('DoctorRegister')}
-              style={styles.linkContainer}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.link}>
-                Don’t have an account? <Text style={styles.boldLink}>Register Now</Text>
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => navigation.navigate('PatientLogin')}
-              style={styles.linkContainer}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.link, { color: '#333' }]}>
-                Are you a Patient? <Text style={styles.boldLink}>Login Here</Text>
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </SafeAreaView>
-
-        {/* Enhanced Modal */}
-        <Modal 
-          isVisible={isModalVisible} 
-          onBackdropPress={toggleModal}
-          animationIn="zoomIn"
-          animationOut="zoomOut"
-          backdropOpacity={0.5}
-          style={styles.modal}
-        >
-          <Animated.View
-            style={[
-              styles.modalContent,
-              {
-                transform: [{ scale: modalScaleAnim }],
-              },
-            ]}
+          {/* REGISTER LINK */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate("DoctorRegister")}
+            style={{ marginTop: 20 }}
+            disabled={isLoading}
           >
-            
-              <MaterialCommunityIcons name={modalIcon} size={60} color={modalColor} />
-            <Text style={[styles.modalText, { color: modalColor }]}>{modalMessage}</Text>
-            <TouchableOpacity 
-              onPress={onModalOkPress} 
-              style={[
-                styles.modalButton,
-                { backgroundColor: modalColor }
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modalButtonText}>OK</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </Modal>
-      </KeyboardAvoidingView>
-    </LinearGradient>
+            <Text style={{ textAlign: "center", color: "#2563EB", fontWeight: "600" }}>
+              New Doctor? Register Here
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
   );
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
-  gradient: {
+  mobileContainer: {
     flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 25,
   },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
+
+  mobileTitle: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "800",
+    marginVertical: 25,
   },
-  card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 30,
-    padding: 40,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
-    alignItems: 'center',
-  },
-  headerIconContainer: {
-    marginBottom: 20,
-    padding: 20,
-    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-    borderRadius: 50,
-  },
-  title: {
-    fontSize: 36,
-    fontWeight: '800',
-    marginBottom: 8,
-    textAlign: 'center',
-    color: '#333',
-    letterSpacing: 0.5,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
-    fontWeight: '500',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 2,
+
+  mobileCard: {
+    backgroundColor: "#fff",
+    width: "100%",
+    padding: 25,
     borderRadius: 20,
-    marginBottom: 20,
-    paddingHorizontal: 20,
-    backgroundColor: '#f9f9f9',
-    width: '100%',
-    transition: 'border 0.3s ease', // For native feel
   },
-  icon: {
-    marginRight: 15,
-  },
+
   input: {
-    flex: 1,
-    height: 55,
-    fontSize: 16,
-    color: '#333',
-    fontWeight: '500',
-  },
-  loginButton: {
-    backgroundColor: '#667eea',
-    borderRadius: 20,
-    paddingVertical: 18,
-    alignItems: 'center',
-    width: '100%',
-    marginTop: 10,
-    shadowColor: '#667eea',
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    justifyContent: 'center',
-  },
-  buttonContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loginButtonText: {
-    color: 'white',
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  linkContainer: {
-    marginTop: 20,
-    paddingVertical: 10,
-  },
-  link: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  boldLink: {
-    fontWeight: '700',
-    color: '#667eea',
-  },
-  modal: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    margin: 0,
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    padding: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 25,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
-    minWidth: 300,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 15,
   },
-  modalText: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginVertical: 20,
-    textAlign: 'center',
-    lineHeight: 24,
+
+  loginBtn: {
+    backgroundColor: "#2563EB",
+    padding: 16,
+    borderRadius: 14,
+    alignItems: "center",
   },
-  modalButton: {
-    borderRadius: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+
+  loginBtnDisabled: {
+    backgroundColor: "#94A3B8",
+    opacity: 0.7,
   },
-  modalButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '700',
+
+  loginText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+
+  leftContent: {
+    position: "absolute",
+    left: 120,
+    top: "25%",
+    maxWidth: 500,
+    pointerEvents: "none",
+  },
+
+  webTitle: {
+    color: "#fff",
+    fontSize: 44,
+    fontWeight: "900",
+    marginTop: 20,
+  },
+
+  webSubtitle: {
+    color: "#CBD5F5",
+    fontSize: 17,
+    marginTop: 15,
+  },
+
+  rightPanel: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: "40%",
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderTopLeftRadius: 60,
+    borderBottomLeftRadius: 60,
+  },
+
+  webCard: {
+    width: 380,
+  },
+
+  webLoginTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    marginBottom: 30,
+  },
+
+  webInput: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 18,
+  },
+
+  webLoginBtn: {
+    backgroundColor: "#2563EB",
+    padding: 18,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+
+  webLoginText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });

@@ -83,13 +83,15 @@ export default function App() {
         <Stack.Screen name="PatientRegister" component={PatientRegisterScreen} />
 
         <Stack.Screen name="DoctorLogin">
-          {(props) => (
-            <DoctorLoginScreen
-              {...props}
-              onLogin={(doctorInfo) => handleLogin("doctor", doctorInfo)}
-            />
-          )}
-        </Stack.Screen>
+  {(props) => (
+    <DoctorLoginScreen
+      {...props}
+      onLogin={(doctorData) => handleLogin("doctor", doctorData)}
+    />
+  )}
+</Stack.Screen>
+
+
 
         <Stack.Screen name="PatientLogin">
           {(props) => (

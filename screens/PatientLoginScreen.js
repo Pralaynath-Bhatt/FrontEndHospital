@@ -1,549 +1,322 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Animated,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
-  Easing,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import Modal from "react-native-modal";
 import axios from "axios";
-import BASE_URL from "./Config";  // Adjust path if Config is not in parent dir
+import BASE_URL from "./Config";
+
+const { width } = Dimensions.get("window");
+const isWeb = width > 900;
 
 export default function PatientLoginScreen({ navigation, onLogin }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [nameFocused, setNameFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMessage, setModalMessage] = useState("");
   const [modalIcon, setModalIcon] = useState("");
   const [modalColor, setModalColor] = useState("");
-  const [isSuccess, setIsSuccess] = useState(false);  // Track for modal flow
-
-  // Refs
-  const passwordInputRef = useRef(null);
-
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(100)).current;
-  const headerScaleAnim = useRef(new Animated.Value(0.8)).current;
-  const nameInputAnim = useRef(new Animated.Value(1)).current;
-  const passwordInputAnim = useRef(new Animated.Value(1)).current;
-  const buttonScaleAnim = useRef(new Animated.Value(1)).current;
-  const modalScaleAnim = useRef(new Animated.Value(0.7)).current;
-
-  useEffect(() => {
-    // Initial entrance animations
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-      Animated.spring(headerScaleAnim, {
-        toValue: 1,
-        friction: 6,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  // Input focus animations
-  const animateInputFocus = (anim, focused) => {
-    Animated.spring(anim, {
-      toValue: focused ? 1.02 : 1,
-      friction: 5,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  // Button press animation
-  const animateButtonPress = () => {
-    Animated.sequence([
-      Animated.timing(buttonScaleAnim, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(buttonScaleAnim, {
-        toValue: 1,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  // Shake animation for errors
-  const triggerShake = () => {
-    console.log("Shake triggered");
-  };
-
-  // Modal animations
-  useEffect(() => {
-    if (isModalVisible) {
-      Animated.spring(modalScaleAnim, {
-        toValue: 1,
-        friction: 5,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(modalScaleAnim, {
-        toValue: 0.7,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isModalVisible]);
-
-  const toggleModal = () => {
-    setModalVisible(!isModalVisible);
-  };
 
   const handleLogin = async () => {
-    if (name.trim() === "" || password === "") {
-      triggerShake();
+    if (!name || !password) {
       setModalIcon("alert-circle-outline");
-      setModalColor("#FF6347");
-      setModalMessage("Please enter both name and password.");
-      setIsSuccess(false);
+      setModalColor("#EF4444");
+      setModalMessage("Please enter name and password.");
       setModalVisible(true);
       return;
     }
 
     setLoading(true);
-    animateButtonPress();
 
     try {
-      console.log("Attempting login with name:", name.trim());  // DEBUG
       const response = await axios.post(`${BASE_URL}:8080/api/patient/login`, {
-        name: name.trim(),
+        name,
         password,
       });
 
-      console.log("Login Response:", response.status, response.data);  // DEBUG
-
-      if (response.status === 200 && response.data) {
-        // Extract patientName from backend response (assumes it returns patient object with 'name')
-        const patientNameFromResponse = response.data.name || name.trim();  // Fallback to input
-        console.log("Extracted patientName:", patientNameFromResponse);  // DEBUG
-
+      if (response.status === 200) {
         setModalIcon("check-circle-outline");
-        setModalColor("#4CAF50");
+        setModalColor("#22C55E");
         setModalMessage("Login successful!");
-        setIsSuccess(true);
-        setModalVisible(true);
 
-        // REWRITTEN: Call onLogin callback (from App.js) to handle state + navigation
-        // Optional brief delay to show success modal before transitioning
         setTimeout(() => {
-          if (onLogin) {
-            onLogin(patientNameFromResponse);
-          }
-        }, 1000);  // Adjust or remove; allows user to see "success" briefly
-      } else {
-        triggerShake();
-        setModalIcon("alert-circle-outline");
-        setModalColor("#FF6347");
-        setModalMessage("Login failed. Please check your credentials.");
-        setIsSuccess(false);
-        setModalVisible(true);
+          if (onLogin) onLogin(name);
+        }, 800);
       }
     } catch (error) {
-      triggerShake();
-      console.error("Login error:", error.response || error.message);  // DEBUG
-      if (error.response && error.response.data) {
-        const message =
-          typeof error.response.data === "string"
-            ? error.response.data
-            : error.response.data.message || "Login failed";
-        setModalIcon("alert-circle-outline");
-        setModalColor("#FF6347");
-        setModalMessage(message);
-      } else {
-        setModalIcon("alert-circle-outline");
-        setModalColor("#FF6347");
-        setModalMessage("Network error. Please try again later.");
-      }
-      setIsSuccess(false);
-      setModalVisible(true);
-    } finally {
-      setLoading(false);
+      setModalIcon("alert-circle-outline");
+      setModalColor("#EF4444");
+      setModalMessage("Invalid credentials or network error.");
     }
+
+    setModalVisible(true);
+    setLoading(false);
   };
 
-  const onModalOkPress = () => {
-    setModalVisible(false);
-    setIsSuccess(false);  // Reset for next use
-    // REWRITTEN: No direct navigation—handled by onLogin in handleLogin
-  };
+  /* ================= MOBILE ================= */
 
-  return (
-    <LinearGradient 
-      colors={["#11998e", "#38ef7d"]} 
-      style={styles.gradient}
-      start={{ x: 0, y: 0 }} 
-      end={{ x: 1, y: 1 }}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.container}
+  if (!isWeb) {
+    return (
+      <LinearGradient
+        colors={["#0F172A", "#1E3A8A", "#2563EB"]}
+        style={{ flex: 1 }}
       >
-        <SafeAreaView style={{ flex: 1, justifyContent: "center" }}>
-          <Animated.View
-            style={[
-              styles.card,
-              { 
-                opacity: fadeAnim, 
-                transform: [
-                  { translateY: slideAnim },
-                  { scale: headerScaleAnim },
-                ] 
-              },
-            ]}
-          >
-            {/* Header Icon */}
-            <Animated.View
-              style={[
-                styles.headerIconContainer,
-                {
-                  transform: [{ scale: headerScaleAnim }],
-                },
-              ]}
-            >
-              <Ionicons name="heart-outline" size={80} color="#11998e" />
-            </Animated.View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.mobileContainer}
+        >
+          <Ionicons name="heart-outline" size={70} color="#fff" />
 
-            <Text style={styles.title}>Patient Login</Text>
-            <Text style={styles.subtitle}>Welcome back! Please sign in to continue.</Text>
+          <Text style={styles.mobileTitle}>Patient Login</Text>
 
-            {/* Name Input */}
-            <Animated.View
-              style={[
-                styles.inputContainer,
-                {
-                  transform: [{ scale: nameInputAnim }],
-                  borderColor: nameFocused ? "#11998e" : "#ddd",
-                  backgroundColor: nameFocused ? "#f8fff9" : "#f9f9f9",
-                },
-              ]}
-            >
-              <Ionicons 
-                name="person-circle-outline" 
-                size={24} 
-                color={nameFocused ? "#11998e" : "#666"} 
-                style={styles.icon} 
-              />
-              <TextInput
-                placeholder="Name"
-                value={name}
-                onChangeText={setName}
-                style={styles.input}
-                autoCapitalize="words"
-                editable={!loading}
-                returnKeyType="next"
-                onSubmitEditing={() => {
-                  passwordInputRef.current?.focus();
-                }}
-                onFocus={() => {
-                  setNameFocused(true);
-                  animateInputFocus(nameInputAnim, true);
-                }}
-                onBlur={() => {
-                  setNameFocused(false);
-                  animateInputFocus(nameInputAnim, false);
-                }}
-              />
-            </Animated.View>
+          <View style={styles.mobileCard}>
+            <TextInput
+              placeholder="Full Name"
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+            />
 
-            {/* Password Input */}
-            <Animated.View
-              style={[
-                styles.inputContainer,
-                {
-                  transform: [{ scale: passwordInputAnim }],
-                  borderColor: passwordFocused ? "#11998e" : "#ddd",
-                  backgroundColor: passwordFocused ? "#f8fff9" : "#f9f9f9",
-                },
-              ]}
-            >
-              <Ionicons 
-                name="lock-closed-outline" 
-                size={24} 
-                color={passwordFocused ? "#11998e" : "#666"} 
-                style={styles.icon} 
-              />
-              <TextInput
-                ref={passwordInputRef}
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                style={styles.input}
-                secureTextEntry
-                editable={!loading}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-                onFocus={() => {
-                  setPasswordFocused(true);
-                  animateInputFocus(passwordInputAnim, true);
-                }}
-                onBlur={() => {
-                  setPasswordFocused(false);
-                  animateInputFocus(passwordInputAnim, false);
-                }}
-              />
-            </Animated.View>
+            <TextInput
+              placeholder="Password"
+              secureTextEntry
+              style={styles.input}
+              value={password}
+              onChangeText={setPassword}
+            />
 
-            {/* Login Button */}
-            <Animated.View
-              style={{
-                transform: [{ scale: buttonScaleAnim }],
-              }}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.loginBtn,
-                  loading && { opacity: 0.7 },
-                ]}
-                onPress={handleLogin}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading ? (
-                  <View style={styles.loadingContainer}>
-                    <Ionicons name="ellipse" size={20} color="white" />
-                    <Text style={styles.loginText}>Logging in...</Text>
-                  </View>
-                ) : (
-                  <View style={styles.buttonContent}>
-                    <Text style={styles.loginText}>Login</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </Animated.View>
+            <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
+              <Text style={styles.loginText}>
+                {loading ? "Signing In..." : "Login"}
+              </Text>
+            </TouchableOpacity>
 
-            {/* Go to Register */}
             <TouchableOpacity
               onPress={() => navigation.navigate("PatientRegister")}
-              style={styles.linkContainer}
-              disabled={loading}
-              activeOpacity={0.7}
+              style={{ marginTop: 15 }}
             >
               <Text style={styles.link}>
-                Don’t have an account? <Text style={styles.boldLink}>Register</Text>
+                Don't have an account? Register
               </Text>
             </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </LinearGradient>
+    );
+  }
 
-            {/* Go to Doctor Login */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate("DoctorLogin")}
-              style={styles.linkContainer}
-              disabled={loading}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.link, { color: "#333" }]}>
-                Are you a Doctor? <Text style={styles.boldLink}>Login Here</Text>
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </SafeAreaView>
+  /* ================= WEB ================= */
 
-        {/* Success/Error Modal */}
-        <Modal 
-          isVisible={isModalVisible} 
-          onBackdropPress={toggleModal}
-          animationIn="zoomIn"
-          animationOut="zoomOut"
-          backdropOpacity={0.5}
-          style={styles.modal}
-        >
-          <Animated.View
-            style={[
-              styles.modalContent,
-              {
-                transform: [{ scale: modalScaleAnim }],
-              },
-            ]}
+  return (
+    <View style={{ flex: 1 }}>
+
+      <LinearGradient
+        colors={["#0F172A", "#1E3A8A", "#2563EB"]}
+        style={StyleSheet.absoluteFillObject}
+      />
+
+      <View style={styles.leftContent}>
+        <Ionicons name="heart-outline" size={70} color="#fff" />
+        <Text style={styles.webTitle}>Patient Portal</Text>
+        <Text style={styles.webSubtitle}>
+          Access your health insights and reports securely.
+        </Text>
+      </View>
+
+      <View style={styles.rightPanel}>
+        <View style={styles.webCard}>
+
+          <Text style={styles.webLoginTitle}>Sign In</Text>
+
+          <TextInput
+            placeholder="Full Name"
+            style={styles.webInput}
+            value={name}
+            onChangeText={setName}
+          />
+
+          <TextInput
+            placeholder="Password"
+            secureTextEntry
+            style={styles.webInput}
+            value={password}
+            onChangeText={setPassword}
+          />
+
+          <TouchableOpacity style={styles.webLoginBtn} onPress={handleLogin}>
+            <Text style={styles.webLoginText}>
+              {loading ? "Signing In..." : "Login"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate("PatientRegister")}
+            style={{ marginTop: 20 }}
           >
-            <MaterialCommunityIcons name={modalIcon} size={60} color={modalColor} />
-            <Text style={[styles.modalText, { color: modalColor }]}>{modalMessage}</Text>
-            <TouchableOpacity 
-              onPress={onModalOkPress} 
-              style={[
-                styles.modalButton,
-                { backgroundColor: modalColor }
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modalButtonText}>OK</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </Modal>
-      </KeyboardAvoidingView>
-    </LinearGradient>
+            <Text style={{ textAlign: "center", color: "#2563EB" }}>
+              Create new account
+            </Text>
+          </TouchableOpacity>
+
+        </View>
+      </View>
+
+      <Modal isVisible={isModalVisible}>
+        <View style={styles.modalBox}>
+          <MaterialCommunityIcons
+            name={modalIcon}
+            size={60}
+            color={modalColor}
+          />
+          <Text style={{ marginVertical: 20, color: modalColor }}>
+            {modalMessage}
+          </Text>
+          <TouchableOpacity
+            style={[styles.modalBtn, { backgroundColor: modalColor }]}
+            onPress={() => setModalVisible(false)}
+          >
+            <Text style={{ color: "#fff", fontWeight: "600" }}>OK</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
+    </View>
   );
 }
 
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  container: {
+
+  mobileContainer: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  card: {
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    borderRadius: 30,
-    padding: 40,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
     alignItems: "center",
+    padding: 25,
   },
-  headerIconContainer: {
-    marginBottom: 20,
-    padding: 20,
-    backgroundColor: "rgba(17, 153, 142, 0.1)",
-    borderRadius: 50,
-  },
-  title: {
-    fontSize: 36,
+
+  mobileTitle: {
+    color: "#fff",
+    fontSize: 28,
     fontWeight: "800",
-    marginBottom: 8,
-    textAlign: "center",
-    color: "#333",
-    letterSpacing: 0.5,
+    marginVertical: 25,
   },
-  subtitle: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 40,
-    fontWeight: "500",
-  },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 2,
-    borderRadius: 20,
-    marginBottom: 20,
-    paddingHorizontal: 20,
-    backgroundColor: "#f9f9f9",
+
+  mobileCard: {
+    backgroundColor: "#fff",
     width: "100%",
+    padding: 25,
+    borderRadius: 20,
   },
-  icon: {
-    marginRight: 15,
-  },
+
   input: {
-    flex: 1,
-    height: 55,
-    fontSize: 16,
-    color: "#333",
-    fontWeight: "500",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 15,
   },
+
   loginBtn: {
-    backgroundColor: "#11998e",
-    borderRadius: 20,
-    paddingVertical: 18,
+    backgroundColor: "#2563EB",
+    padding: 16,
+    borderRadius: 14,
     alignItems: "center",
-    width: "100%",
-    marginTop: 10,
-    shadowColor: "#11998e",
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    justifyContent: "center",
   },
-  buttonContent: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+
   loginText: {
-    color: "white",
-    fontSize: 20,
+    color: "#fff",
     fontWeight: "700",
-    letterSpacing: 1,
-    textAlign: "center",
   },
-  loadingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  linkContainer: {
-    marginTop: 20,
-    paddingVertical: 10,
-  },
+
   link: {
     textAlign: "center",
-    color: "#666",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  boldLink: {
-    fontWeight: "700",
-    color: "#11998e",
-  },
-  modal: {
-    justifyContent: "center",
-    alignItems: "center",
-    margin: 0,
-  },
-  modalContent: {
-    backgroundColor: "white",
-    padding: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: "rgba(0, 0, 0, 0.1)",
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
-    minWidth: 300,
-  },
-  modalText: {
-    fontSize: 18,
+    color: "#2563EB",
     fontWeight: "600",
-    marginVertical: 20,
-    textAlign: "center",
-    lineHeight: 24,
   },
-  modalButton: {
-    borderRadius: 15,
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+
+  leftContent: {
+    position: "absolute",
+    left: 120,
+    top: "30%",
   },
-  modalButtonText: {
-    color: "white",
-    fontSize: 18,
+
+  webTitle: {
+    color: "#fff",
+    fontSize: 42,
+    fontWeight: "900",
+  },
+
+  webSubtitle: {
+    color: "#CBD5F5",
+    marginTop: 10,
+    fontSize: 16,
+  },
+
+  rightPanel: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: "40%",
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderTopLeftRadius: 60,
+    borderBottomLeftRadius: 60,
+  },
+
+  webCard: {
+    width: 380,
+  },
+
+  webLoginTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    marginBottom: 30,
+  },
+
+  webInput: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 18,
+  },
+
+  webLoginBtn: {
+    backgroundColor: "#2563EB",
+    padding: 18,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+
+  webLoginText: {
+    color: "#fff",
     fontWeight: "700",
   },
+
+  modalBox: {
+    backgroundColor: "#fff",
+    padding: 30,
+    borderRadius: 20,
+    alignItems: "center",
+  },
+
+  modalBtn: {
+    padding: 12,
+    borderRadius: 12,
+  },
+
 });
