@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { initConfig } from "./screens/Config"; // ← only addition
 
 // Screens
 import WelcomeScreen from "./screens/WelcomeScreen";
@@ -17,11 +18,16 @@ const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userType, setUserType] = useState(null); // 'doctor' or 'patient'
-  const [userData, setUserData] = useState(null); // user info (e.g., name)
-  const [loading, setLoading] = useState(false);
+  const [userType,   setUserType]   = useState(null);
+  const [userData,   setUserData]   = useState(null);
+  const [loading,    setLoading]    = useState(true); // ← start true until config loads
 
   const navigationRef = useRef();
+
+  // ── Load saved IP before anything renders ──────────────────────────────────
+  useEffect(() => {
+    initConfig().finally(() => setLoading(false));
+  }, []);
 
   const handleLogin = (type, userInfo = null) => {
     setUserType(type);
@@ -44,7 +50,6 @@ export default function App() {
       let homeScreenName, params = {};
       if (userType === "doctor") {
         homeScreenName = "DoctorHomeScreen";
-        // You can add doctor-specific params if needed
       } else if (userType === "patient") {
         homeScreenName = "PatientHomeScreen";
         params = { patientName: userData };
@@ -53,7 +58,6 @@ export default function App() {
         return;
       }
 
-      // Small delay ensures state updates before navigation
       setTimeout(() => {
         if (navigationRef.current?.reset) {
           navigationRef.current.reset({
@@ -65,10 +69,11 @@ export default function App() {
     }
   }, [isLoggedIn, userType]);
 
+  // ── Show spinner while config loads (usually < 100ms) ─────────────────────
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#2563EB" />
       </View>
     );
   }
@@ -83,15 +88,13 @@ export default function App() {
         <Stack.Screen name="PatientRegister" component={PatientRegisterScreen} />
 
         <Stack.Screen name="DoctorLogin">
-  {(props) => (
-    <DoctorLoginScreen
-      {...props}
-      onLogin={(doctorData) => handleLogin("doctor", doctorData)}
-    />
-  )}
-</Stack.Screen>
-
-
+          {(props) => (
+            <DoctorLoginScreen
+              {...props}
+              onLogin={(doctorData) => handleLogin("doctor", doctorData)}
+            />
+          )}
+        </Stack.Screen>
 
         <Stack.Screen name="PatientLogin">
           {(props) => (

@@ -1,24 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  TextInput,
-  ActivityIndicator,
-  Dimensions,
-  Alert,
-  Image,
-  SafeAreaView,
-  FlatList,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  TextInput, ActivityIndicator, Dimensions, Alert, Image,
+  SafeAreaView, FlatList, Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
 import { Picker } from "@react-native-picker/picker";
-import Animated, { FadeInLeft } from "react-native-reanimated";
+import AnimatedRN, { FadeInLeft } from "react-native-reanimated";
 import axios from "axios";
 import { Audio } from "expo-av";
 import BASE_URL from "./Config";
@@ -26,360 +16,688 @@ import apiClient from "./Apiclient";
 
 const { width } = Dimensions.get("window");
 const isWeb = width > 900;
-const screenWidth = Dimensions.get("window").width;
-const cardMargin = 12;
-const cardWidth = screenWidth - cardMargin * 4;
 
-const DiagnosisSection = ({ title, iconName, iconColor, children, isExpandedDefault = false }) => {
-  const [expanded, setExpanded] = useState(isExpandedDefault);
+// ─── Design Tokens ────────────────────────────────────────────────────────────
+const C = {
+  bg:          "#EEF2FF",
+  surface:     "#FFFFFF",
+  surfaceAlt:  "#F0F6FF",
+  surfaceBlu:  "#EBF3FF",
+  navy:        "#0F172A",
+  darkBlue:    "#1E3A8A",
+  blue:        "#2563EB",
+  blueMid:     "#3B82F6",
+  blueLight:   "#60A5FA",
+  bluePale:    "#BFDBFE",
+  blueGhost:   "#EFF6FF",
+  border:      "#DBEAFE",
+  green:       "#059669",
+  greenLight:  "#D1FAE5",
+  red:         "#DC2626",
+  redLight:    "#FEE2E2",
+  amber:       "#D97706",
+  amberLight:  "#FEF3C7",
+  purple:      "#7C3AED",
+  purpleLight: "#EDE9FE",
+  cyan:        "#0891B2",
+  cyanLight:   "#CFFAFE",
+  textPrimary: "#0F172A",
+  textSecond:  "#3B5A8A",
+  textMuted:   "#94A3B8",
+};
 
+const G = {
+  navy:   ["#0F172A", "#1E3A8A", "#2563EB"],
+  blue:   ["#2563EB", "#3B82F6"],
+  teal:   ["#0891B2", "#2563EB"],
+  green:  ["#059669", "#0891B2"],
+  red:    ["#DC2626", "#F59E0B"],
+  purple: ["#7C3AED", "#2563EB"],
+  amber:  ["#D97706", "#DC2626"],
+};
+
+// ─── Error Parser ─────────────────────────────────────────────────────────────
+const parseApiError = (error) => {
+  const errBody = error?.response?.data;
+  if (!errBody) {
+    return { type: "general", message: error?.message || "Something went wrong. Please try again." };
+  }
+  if (errBody?.data && typeof errBody.data === "object" && !Array.isArray(errBody.data)) {
+    const fields = Object.entries(errBody.data).map(([key, msg]) => ({
+      field: key.replace(/patientData\[\d+\]\./, "").replace(/([A-Z])/g, " $1").trim(),
+      msg,
+    }));
+    return { type: "validation", message: errBody.message || "Validation Error", fields };
+  }
+  const msg =
+    errBody?.message ||
+    errBody?.error ||
+    errBody?.detail ||
+    (typeof errBody === "string" ? errBody : null) ||
+    error?.message ||
+    "Something went wrong.";
+  return { type: "general", message: msg };
+};
+
+// ─── ErrorCard ────────────────────────────────────────────────────────────────
+const ErrorCard = memo(({ error, onDismiss }) => {
+  if (!error) return null;
   return (
-    <View style={patientStyles.sectionContainer}>
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => setExpanded(!expanded)}
-        style={patientStyles.sectionHeader}
-      >
-        <LinearGradient
-          colors={[iconColor + "cc", iconColor + "66"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={patientStyles.iconBackground}
-        >
-          <FontAwesome5 name={iconName} size={20} color="white" />
-        </LinearGradient>
-        <Text style={patientStyles.sectionTitle}>{title}</Text>
-        <Ionicons
-          name={expanded ? "chevron-up" : "chevron-down"}
-          size={22}
-          color="#444"
-          style={{ marginLeft: "auto" }}
-        />
-      </TouchableOpacity>
-      {expanded && <View style={patientStyles.sectionContent}>{children}</View>}
+    <View style={errS.wrap}>
+      <View style={errS.header}>
+        <MaterialCommunityIcons name="alert-circle" size={19} color={C.red} />
+        <Text style={errS.headerText}>{error.message}</Text>
+        {onDismiss && (
+          <TouchableOpacity onPress={onDismiss} style={errS.dismissBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialCommunityIcons name="close" size={16} color={C.red} />
+          </TouchableOpacity>
+        )}
+      </View>
+      {error.type === "validation" && error.fields?.length > 0 && (
+        <View style={errS.fieldList}>
+          {error.fields.map((e, i) => (
+            <View key={i} style={errS.fieldRow}>
+              <View style={errS.fieldDot} />
+              <Text style={errS.fieldName}>{e.field}: </Text>
+              <Text style={errS.fieldMsg}>{e.msg}</Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
-};
+});
 
-const renderPatientDiagnosisItem = ({ item }) => {
-  const isPositive =
-    item.prediction.toLowerCase().includes("high") ||
-    item.prediction.toLowerCase().includes("positive");
+// ─── Memoized Primitives ──────────────────────────────────────────────────────
 
-  const gradientColors = isPositive ? ["#ff4e50", "#f9d423"] : ["#11998e", "#38ef7d"];
+const SectionCard = memo(({ children, style }) => (
+  <View style={[prim.sectionCard, style]}>{children}</View>
+));
 
+const SectionHeading = memo(({ icon, title, subtitle, color = C.blue }) => (
+  <View style={prim.sectionHeading}>
+    <LinearGradient colors={[color, color + "BB"]} style={prim.sectionHeadingIcon}>
+      <MaterialCommunityIcons name={icon} size={20} color="#fff" />
+    </LinearGradient>
+    <View style={{ flex: 1 }}>
+      <Text style={prim.sectionHeadingTitle}>{title}</Text>
+      {subtitle ? <Text style={prim.sectionHeadingSubtitle}>{subtitle}</Text> : null}
+    </View>
+  </View>
+));
+
+// No useState inside — prevents web flickering
+const FloatingInput = memo(({ label, icon, value, onChangeText, placeholder, keyboardType, editable = true, multiline }) => (
+  <View style={prim.floatWrap}>
+    <Text style={prim.floatLabel}>{label}</Text>
+    <View style={[prim.floatBox, !editable && prim.floatBoxDisabled]}>
+      {icon && <MaterialCommunityIcons name={icon} size={18} color={C.textMuted} style={{ marginRight: 10 }} />}
+      <TextInput
+        style={[prim.floatInput, multiline && { height: 80, textAlignVertical: "top" }, { outlineStyle: "none" }]}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={C.textMuted}
+        keyboardType={keyboardType || "default"}
+        editable={editable}
+        multiline={multiline}
+      />
+    </View>
+  </View>
+));
+
+const FloatingPicker = memo(({ label, icon, selectedValue, onValueChange, enabled = true, children }) => (
+  <View style={prim.floatWrap}>
+    <Text style={prim.floatLabel}>{label}</Text>
+    <View style={[prim.floatBox, !enabled && prim.floatBoxDisabled]}>
+      {icon && <MaterialCommunityIcons name={icon} size={18} color={C.textMuted} style={{ marginRight: 10 }} />}
+      <Picker
+        selectedValue={selectedValue}
+        onValueChange={onValueChange}
+        style={prim.pickerInner}
+        enabled={enabled}
+        dropdownIconColor={C.textSecond}
+      >
+        {children}
+      </Picker>
+    </View>
+  </View>
+));
+
+const PrimaryButton = memo(({ label, icon, onPress, disabled, loading, gradient = G.blue }) => (
+  <TouchableOpacity
+    onPress={onPress} disabled={disabled || loading} activeOpacity={0.85}
+    style={[prim.btnWrap, (disabled || loading) && { opacity: 0.5 }]}
+  >
+    <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={prim.btn}>
+      {loading
+        ? <ActivityIndicator color="#fff" size="small" style={{ marginRight: 10 }} />
+        : icon && <MaterialCommunityIcons name={icon} size={20} color="#fff" style={{ marginRight: 10 }} />}
+      <Text style={prim.btnText}>{loading ? "Processing..." : label}</Text>
+    </LinearGradient>
+  </TouchableOpacity>
+));
+
+// ─── Patient History Components ───────────────────────────────────────────────
+
+const DiagnosisSection = memo(({ title, iconName, iconColor, bgColor, children, isExpandedDefault = false }) => {
+  const [expanded, setExpanded] = useState(isExpandedDefault);
+  const toggle = useCallback(() => setExpanded(v => !v), []);
   return (
-    <Animated.View style={patientStyles.diagnosisContainer} entering={FadeInLeft.duration(800)}>
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={patientStyles.dateBanner}
-      >
-        <Text style={patientStyles.dateBannerText}>{item.date}</Text>
-      </LinearGradient>
-
-      <DiagnosisSection
-        title="Symptoms & Input Details"
-        iconName="stethoscope"
-        iconColor="#3498db"
-        isExpandedDefault={false}
-      >
-        {item.symptoms.length > 0 ? (
-          item.symptoms.map((symptom, index) => (
-            <View key={index} style={patientStyles.listItemContainer}>
-              <View style={patientStyles.bulletPoint} />
-              <Text style={patientStyles.listItemText}>{symptom}</Text>
-            </View>
-          ))
-        ) : (
-          <Text style={patientStyles.listItemText}>No detailed inputs recorded</Text>
-        )}
-      </DiagnosisSection>
-
-      <DiagnosisSection
-        title="Prediction"
-        iconName="heartbeat"
-        iconColor={isPositive ? "#e74c3c" : "#2ecc71"}
-        isExpandedDefault={true}
-      >
-        <View style={patientStyles.predictionWrapper}>
-          <FontAwesome5
-            name="heart"
-            size={30}
-            color={isPositive ? "#e74c3c" : "#2ecc71"}
-            style={{ marginRight: 10 }}
-          />
-          <Text
-            style={[
-              patientStyles.predictionText,
-              { color: isPositive ? "#e74c3c" : "#2ecc71" },
-            ]}
-          >
-            {item.prediction}
-          </Text>
+    <View style={hist.sectionWrap}>
+      <TouchableOpacity activeOpacity={0.8} onPress={toggle} style={hist.sectionHeader}>
+        <View style={[hist.sectionIconBg, { backgroundColor: bgColor || iconColor + "22" }]}>
+          <FontAwesome5 name={iconName} size={13} color={iconColor} />
         </View>
-      </DiagnosisSection>
-
-      <DiagnosisSection
-        title="Recommended Medicines"
-        iconName="capsules"
-        iconColor="#9b59b6"
-        isExpandedDefault={false}
-      >
-        {item.medicines.length > 0 ? (
-          item.medicines.map((med, idx) => (
-            <View key={idx} style={patientStyles.listItemContainer}>
-              <View style={[patientStyles.bulletPoint, { backgroundColor: "#9b59b6" }]} />
-              <Text style={patientStyles.listItemText}>{med}</Text>
-            </View>
-          ))
-        ) : (
-          <Text style={patientStyles.listItemText}>No recommendations available</Text>
-        )}
-      </DiagnosisSection>
-
-      {item.transcript && (
-        <DiagnosisSection
-          title="Audio Transcript"
-          iconName="microphone"
-          iconColor="#9b59b6"
-          isExpandedDefault={false}
-        >
-          <View style={patientStyles.listItemContainer}>
-            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
-              {item.transcript}
-            </Text>
-          </View>
-        </DiagnosisSection>
-      )}
-
-      {item.summary && (
-        <DiagnosisSection
-          title="Summary"
-          iconName="file-alt"
-          iconColor="#16a085"
-          isExpandedDefault={false}
-        >
-          <View style={patientStyles.listItemContainer}>
-            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
-              {item.summary}
-            </Text>
-          </View>
-        </DiagnosisSection>
-      )}
-
-      {item.deIdentifiedTranscript && (
-        <DiagnosisSection
-          title="De-identified Transcript"
-          iconName="shield-alt"
-          iconColor="#f39c12"
-          isExpandedDefault={false}
-        >
-          <View style={patientStyles.listItemContainer}>
-            <Text style={[patientStyles.listItemText, { fontStyle: "italic", paddingBottom: 10 }]}>
-              {item.deIdentifiedTranscript}
-            </Text>
-          </View>
-        </DiagnosisSection>
-      )}
-    </Animated.View>
+        <Text style={hist.sectionTitle}>{title}</Text>
+        <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={17} color={C.textMuted} style={{ marginLeft: "auto" }} />
+      </TouchableOpacity>
+      {expanded && <View style={hist.sectionBody}>{children}</View>}
+    </View>
   );
+});
+
+const PatientDiagnosisItem = memo(({ item }) => {
+  const isPositive = item.prediction.toLowerCase().includes("high") || item.prediction.toLowerCase().includes("positive");
+  return (
+    <AnimatedRN.View style={hist.card} entering={FadeInLeft.duration(600)}>
+      <LinearGradient colors={isPositive ? G.red : G.green} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={hist.dateBanner}>
+        <FontAwesome5 name="calendar-alt" size={11} color="rgba(255,255,255,0.85)" />
+        <Text style={hist.dateBannerText}>{item.date}</Text>
+      </LinearGradient>
+      <View style={hist.cardBody}>
+        <DiagnosisSection title="Symptoms & Input Details" iconName="stethoscope" iconColor={C.cyan} bgColor={C.cyanLight} isExpandedDefault={false}>
+          {item.symptoms.length > 0
+            ? item.symptoms.map((s, i) => (
+              <View key={i} style={hist.listRow}>
+                <View style={[hist.dot, { backgroundColor: C.cyan }]} />
+                <Text style={hist.listText}>{s}</Text>
+              </View>
+            ))
+            : <Text style={hist.listText}>No detailed inputs recorded</Text>}
+        </DiagnosisSection>
+        <DiagnosisSection title="Prediction" iconName="heartbeat"
+          iconColor={isPositive ? C.red : C.green} bgColor={isPositive ? C.redLight : C.greenLight} isExpandedDefault>
+          <View style={hist.predRow}>
+            <FontAwesome5 name="heart" size={20} color={isPositive ? C.red : C.green} style={{ marginRight: 10 }} />
+            <Text style={[hist.predText, { color: isPositive ? C.red : C.green }]}>{item.prediction}</Text>
+          </View>
+        </DiagnosisSection>
+        <DiagnosisSection title="Recommended Medicines" iconName="capsules" iconColor={C.purple} bgColor={C.purpleLight} isExpandedDefault={false}>
+          {item.medicines.length > 0
+            ? item.medicines.map((m, i) => (
+              <View key={i} style={hist.listRow}>
+                <View style={[hist.dot, { backgroundColor: C.purple }]} />
+                <Text style={hist.listText}>{m}</Text>
+              </View>
+            ))
+            : <Text style={hist.listText}>No recommendations available</Text>}
+        </DiagnosisSection>
+        {item.transcript ? (
+          <DiagnosisSection title="Audio Transcript" iconName="microphone" iconColor={C.blue} bgColor={C.bluePale} isExpandedDefault={false}>
+            <Text style={[hist.listText, { fontStyle: "italic" }]}>{item.transcript}</Text>
+          </DiagnosisSection>
+        ) : null}
+        {item.summary ? (
+          <DiagnosisSection title="Summary" iconName="file-alt" iconColor={C.green} bgColor={C.greenLight} isExpandedDefault={false}>
+            <Text style={[hist.listText, { fontStyle: "italic" }]}>{item.summary}</Text>
+          </DiagnosisSection>
+        ) : null}
+        {item.deIdentifiedTranscript ? (
+          <DiagnosisSection title="De-identified Transcript" iconName="shield-alt" iconColor={C.amber} bgColor={C.amberLight} isExpandedDefault={false}>
+            <Text style={[hist.listText, { fontStyle: "italic" }]}>{item.deIdentifiedTranscript}</Text>
+          </DiagnosisSection>
+        ) : null}
+      </View>
+    </AnimatedRN.View>
+  );
+});
+
+const renderPatientDiagnosisItem = ({ item }) => <PatientDiagnosisItem item={item} />;
+
+// ─── ECG Sub-components ───────────────────────────────────────────────────────
+
+const ECG_DIAGNOSIS_CONFIG = {
+  Normal:       { colors: G.green,  label: "Normal"                },
+  Abnormal:     { colors: G.amber,  label: "Abnormal"              },
+  "MI":         { colors: G.red,    label: "Myocardial Infarction" },
+  "History-MI": { colors: G.purple, label: "History of MI"         },
 };
+
+const TERRITORY_COLORS = { Anterior: C.blue, Lateral: C.green, Inferior: C.amber, Rhythm: C.red };
+const ZONE_COLORS = { QRS_zone: C.blue, ST_zone: C.amber, Baseline_zone: C.green };
+
+const ECGTerritoryBar = memo(({ label, value, color }) => {
+  const pct = Math.round(value * 100);
+  return (
+    <View style={ecgS.barRow}>
+      <Text style={ecgS.barLabel}>{label}</Text>
+      <View style={ecgS.barTrack}>
+        <View style={[ecgS.barFill, { width: `${pct}%`, backgroundColor: color }]} />
+      </View>
+      <Text style={[ecgS.barValue, { color }]}>{pct}%</Text>
+    </View>
+  );
+});
+
+const ECGZonePill = memo(({ label, value, color, dominant }) => (
+  <View style={[ecgS.zonePill, dominant && { borderColor: color, borderWidth: 1.5, backgroundColor: color + "15" }]}>
+    <View style={[ecgS.zoneDot, { backgroundColor: color }]} />
+    <View style={{ flex: 1 }}>
+      <Text style={ecgS.zoneLabel}>{label}</Text>
+      <Text style={[ecgS.zoneValue, { color }]}>{Math.round(value * 100)}%</Text>
+    </View>
+    {dominant && (
+      <View style={[ecgS.dominantBadge, { backgroundColor: color }]}>
+        <Text style={ecgS.dominantBadgeText}>PRIMARY</Text>
+      </View>
+    )}
+  </View>
+));
+
+const ECGLeadItem = memo(({ lead, score, rank }) => {
+  const rankColors = ["#D97706", "#64748B", "#92400E", C.textMuted, C.textMuted];
+  return (
+    <View style={ecgS.leadRow}>
+      <View style={[ecgS.rankBadge, { backgroundColor: rankColors[rank] + "20", borderColor: rankColors[rank] + "60", borderWidth: 1 }]}>
+        <Text style={[ecgS.rankText, { color: rankColors[rank] }]}>#{rank + 1}</Text>
+      </View>
+      <Text style={ecgS.leadName}>{lead}</Text>
+      <View style={ecgS.leadBarTrack}>
+        <LinearGradient colors={G.blue} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+          style={[ecgS.leadBarFill, { width: Math.max(Math.round(score * 260), 10) }]} />
+      </View>
+      <Text style={ecgS.leadScore}>{score.toFixed(4)}</Text>
+    </View>
+  );
+});
+
+const ECGResultSection = memo(({ title, icon, iconColor, children, defaultOpen = false }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  const toggle = useCallback(() => setOpen(v => !v), []);
+  return (
+    <View style={ecgS.resultSection}>
+      <TouchableOpacity activeOpacity={0.8} onPress={toggle} style={ecgS.resultSectionHeader}>
+        <View style={[ecgS.resultIconBg, { backgroundColor: iconColor + "20" }]}>
+          <MaterialCommunityIcons name={icon} size={15} color={iconColor} />
+        </View>
+        <Text style={ecgS.resultSectionTitle}>{title}</Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={17} color={C.textMuted} style={{ marginLeft: "auto" }} />
+      </TouchableOpacity>
+      {open && <View style={ecgS.resultSectionBody}>{children}</View>}
+    </View>
+  );
+});
+
+// ─── Memoized Form Sections ───────────────────────────────────────────────────
+
+const AudioSection = memo(({ audioPatientName, onNameChange, isRecording, isUploading, onRecord, audioError, onDismissError }) => (
+  <SectionCard style={{ marginTop: 20 }}>
+    <SectionHeading icon="microphone" title="Audio-Based Prediction" subtitle="Record consultation for AI analysis" color={C.purple} />
+    <View style={main.divider} />
+    <FloatingInput label="Patient Name" icon="account" value={audioPatientName}
+      onChangeText={onNameChange} placeholder="e.g. John Doe" editable={!isRecording && !isUploading} />
+    <TouchableOpacity onPress={onRecord} disabled={isUploading} activeOpacity={0.85} style={main.recordBtnWrap}>
+      <LinearGradient colors={isRecording ? G.red : G.purple} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={main.recordBtn}>
+        {isUploading
+          ? <ActivityIndicator color="#fff" size="small" style={{ marginRight: 12 }} />
+          : <MaterialCommunityIcons name={isRecording ? "stop-circle" : "microphone"} size={24} color="#fff" style={{ marginRight: 12 }} />}
+        <Text style={main.recordBtnText}>
+          {isUploading ? "Analyzing..." : isRecording ? "Stop & Analyze" : "Start Recording"}
+        </Text>
+        {isRecording && <View style={main.recordingDot} />}
+      </LinearGradient>
+    </TouchableOpacity>
+    {audioError ? <ErrorCard error={audioError} onDismiss={onDismissError} /> : null}
+  </SectionCard>
+));
+
+const ManualPredictionSection = memo(({ formData, onFieldChange, isSubmitting, onSubmit }) => (
+  <SectionCard style={{ marginTop: 16 }}>
+    <SectionHeading icon="clipboard-text" title="Manual Prediction" subtitle="Enter patient vitals for risk assessment" color={C.blue} />
+    <View style={main.divider} />
+    <View style={main.twoCol}>
+      <View style={{ flex: 1 }}>
+        <FloatingInput label="Patient Name" icon="account" value={formData.patientName}
+          onChangeText={onFieldChange.patientName} placeholder="Full name" editable={!isSubmitting} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <FloatingInput label="Age" icon="calendar" value={formData.Age}
+          onChangeText={onFieldChange.Age} placeholder="Years" keyboardType="numeric" editable={!isSubmitting} />
+      </View>
+    </View>
+    <View style={main.twoCol}>
+      <View style={{ flex: 1 }}>
+        <FloatingPicker label="Sex" icon="gender-male-female" selectedValue={formData.Sex}
+          onValueChange={onFieldChange.Sex} enabled={!isSubmitting}>
+          <Picker.Item label="Male (M)" value="M" />
+          <Picker.Item label="Female (F)" value="F" />
+        </FloatingPicker>
+      </View>
+      <View style={{ flex: 1 }}>
+        <FloatingPicker label="Chest Pain Type" icon="heart-broken" selectedValue={formData.ChestPainType}
+          onValueChange={onFieldChange.ChestPainType} enabled={!isSubmitting}>
+          <Picker.Item label="ATA – Asymptomatic" value="ATA" />
+          <Picker.Item label="NAP – Non-Anginal" value="NAP" />
+          <Picker.Item label="ASY – Atypical" value="ASY" />
+          <Picker.Item label="TA – Typical Angina" value="TA" />
+        </FloatingPicker>
+      </View>
+    </View>
+    <View style={main.twoCol}>
+      <View style={{ flex: 1 }}>
+        <FloatingInput label="Resting BP (mm Hg)" icon="pulse" value={formData.RestingBP}
+          onChangeText={onFieldChange.RestingBP} placeholder="e.g. 120" keyboardType="numeric" editable={!isSubmitting} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <FloatingInput label="Cholesterol (mg/dl)" icon="water" value={formData.Cholesterol}
+          onChangeText={onFieldChange.Cholesterol} placeholder="e.g. 200" keyboardType="numeric" editable={!isSubmitting} />
+      </View>
+    </View>
+    <View style={main.twoCol}>
+      <View style={{ flex: 1 }}>
+        <FloatingInput label="Max Heart Rate" icon="heart-flash" value={formData.MaxHR}
+          onChangeText={onFieldChange.MaxHR} placeholder="e.g. 150" keyboardType="numeric" editable={!isSubmitting} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <FloatingInput label="Oldpeak (ST Depr.)" icon="chart-line" value={formData.Oldpeak}
+          onChangeText={onFieldChange.Oldpeak} placeholder="e.g. 1.5" keyboardType="decimal-pad" editable={!isSubmitting} />
+      </View>
+    </View>
+    <View style={main.twoCol}>
+      <View style={{ flex: 1 }}>
+        <FloatingPicker label="Fasting Blood Sugar" icon="blood-bag" selectedValue={formData.FastingBS}
+          onValueChange={onFieldChange.FastingBS} enabled={!isSubmitting}>
+          <Picker.Item label="Normal (≤120)" value="0" />
+          <Picker.Item label="High (>120)" value="1" />
+        </FloatingPicker>
+      </View>
+      <View style={{ flex: 1 }}>
+        <FloatingPicker label="Resting ECG" icon="waveform" selectedValue={formData.RestingECG}
+          onValueChange={onFieldChange.RestingECG} enabled={!isSubmitting}>
+          <Picker.Item label="Normal" value="Normal" />
+          <Picker.Item label="ST" value="ST" />
+          <Picker.Item label="LVH" value="LVH" />
+        </FloatingPicker>
+      </View>
+    </View>
+    <View style={main.twoCol}>
+      <View style={{ flex: 1 }}>
+        <FloatingPicker label="Exercise Angina" icon="run-fast" selectedValue={formData.ExerciseAngina}
+          onValueChange={onFieldChange.ExerciseAngina} enabled={!isSubmitting}>
+          <Picker.Item label="No" value="N" />
+          <Picker.Item label="Yes" value="Y" />
+        </FloatingPicker>
+      </View>
+      <View style={{ flex: 1 }}>
+        <FloatingPicker label="ST Slope" icon="trending-up" selectedValue={formData.ST_Slope}
+          onValueChange={onFieldChange.ST_Slope} enabled={!isSubmitting}>
+          <Picker.Item label="Up" value="Up" />
+          <Picker.Item label="Flat" value="Flat" />
+          <Picker.Item label="Down" value="Down" />
+        </FloatingPicker>
+      </View>
+    </View>
+    <PrimaryButton label="Predict Heart Risk" icon="heart-search"
+      onPress={onSubmit} loading={isSubmitting} disabled={isSubmitting} gradient={G.blue} />
+  </SectionCard>
+));
+
+const ECGSection = memo(({ ecgPatientName, onNameChange, ecgImage, ecgLoading, ecgError, onDismissError, ecgPulseAnim, onPickImage, onTakePhoto, onAnalyze }) => (
+  <SectionCard style={{ marginTop: 16 }}>
+    <SectionHeading icon="waveform" title="ECG Image Analysis" subtitle="AI-powered ECG diagnosis from image" color={C.cyan} />
+    <View style={main.divider} />
+    <FloatingInput label="Patient Name" icon="account" value={ecgPatientName}
+      onChangeText={onNameChange} placeholder="e.g. John Doe" editable={!ecgLoading} />
+    <View style={ecgS.uploadRow}>
+      <TouchableOpacity style={[ecgS.uploadBtn, { flex: 1 }]} onPress={onPickImage} disabled={ecgLoading} activeOpacity={0.8}>
+        <View style={ecgS.uploadBtnInner}>
+          <MaterialCommunityIcons name="image-plus" size={22} color={C.blue} />
+          <Text style={ecgS.uploadBtnText}>Gallery</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity style={[ecgS.uploadBtn, { flex: 1 }]} onPress={onTakePhoto} disabled={ecgLoading} activeOpacity={0.8}>
+        <View style={ecgS.uploadBtnInner}>
+          <MaterialCommunityIcons name="camera-plus" size={22} color={C.cyan} />
+          <Text style={ecgS.uploadBtnText}>Camera</Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+    {ecgImage ? (
+      <View style={ecgS.previewWrap}>
+        <Image source={{ uri: ecgImage.uri }} style={ecgS.previewImg} resizeMode="contain" />
+        <View style={ecgS.previewFooter}>
+          <MaterialCommunityIcons name="check-circle" size={15} color={C.green} />
+          <Text style={ecgS.previewFileName} numberOfLines={1}>{ecgImage.name}</Text>
+        </View>
+      </View>
+    ) : (
+      <View style={ecgS.emptyPreview}>
+        <MaterialCommunityIcons name="file-image-outline" size={44} color={C.textMuted} />
+        <Text style={ecgS.emptyPreviewText}>No ECG image selected</Text>
+      </View>
+    )}
+    <Animated.View style={{ transform: [{ scale: ecgPulseAnim }], marginTop: 14 }}>
+      <PrimaryButton label="Analyze ECG" icon="heart-pulse" onPress={onAnalyze}
+        loading={ecgLoading} disabled={ecgLoading || !ecgImage || !ecgPatientName.trim()} gradient={G.teal} />
+    </Animated.View>
+    {ecgError ? <ErrorCard error={ecgError} onDismiss={onDismissError} /> : null}
+  </SectionCard>
+));
+
+const PatientHistorySection = memo(({ patientSearchText, onSearchChange, onSearch, patientLoading }) => (
+  <SectionCard style={{ marginTop: 16 }}>
+    <SectionHeading icon="history" title="Patient History" subtitle="Search past predictions and records" color={C.green} />
+    <View style={main.divider} />
+    <View style={main.searchRow}>
+      <View style={main.searchInputWrap}>
+        <MaterialCommunityIcons name="magnify" size={18} color={C.textMuted} style={{ marginRight: 8 }} />
+        <TextInput
+          style={[main.searchInput, { outlineStyle: "none" }]}
+          placeholder="Search patient name..."
+          placeholderTextColor={C.textMuted}
+          value={patientSearchText}
+          onChangeText={onSearchChange}
+          returnKeyType="search"
+          onSubmitEditing={onSearch}
+          editable={!patientLoading}
+        />
+      </View>
+      <TouchableOpacity
+        onPress={onSearch}
+        disabled={patientLoading || !patientSearchText.trim()}
+        style={[main.searchBtn, (patientLoading || !patientSearchText.trim()) && { opacity: 0.4 }]}
+      >
+        <LinearGradient colors={G.green} style={main.searchBtnInner}>
+          {patientLoading
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <MaterialCommunityIcons name="arrow-right" size={20} color="#fff" />}
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
+  </SectionCard>
+));
+
+// ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
 
 export default function DoctorHomeScreen({ onLogout }) {
-  // Audio Recording States
-  const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [isRecording, setIsRecording]           = useState(false);
+  const [recording, setRecording]               = useState(null);
+  const [isUploading, setIsUploading]           = useState(false);
   const [audioPatientName, setAudioPatientName] = useState("");
   const [audioDiagnosisResult, setAudioDiagnosisResult] = useState(null);
+  const [audioError, setAudioError]             = useState(null);
 
-  // Text Prediction States
   const [formData, setFormData] = useState({
-    patientName: "",
-    Age: "",
-    Sex: "M",
-    ChestPainType: "ATA",
-    RestingBP: "",
-    Cholesterol: "",
-    FastingBS: "0",
-    RestingECG: "Normal",
-    MaxHR: "",
-    ExerciseAngina: "N",
-    Oldpeak: "",
-    ST_Slope: "Up",
+    patientName: "", Age: "", Sex: "M", ChestPainType: "ATA",
+    RestingBP: "", Cholesterol: "", FastingBS: "0", RestingECG: "Normal",
+    MaxHR: "", ExerciseAngina: "N", Oldpeak: "", ST_Slope: "Up",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [heartResult, setHeartResult] = useState(null);
+  const [heartResult, setHeartResult]   = useState(null);
+  const [heartError, setHeartError]     = useState(null);
 
-  // Patient History States
-  const [patientSearchText, setPatientSearchText] = useState("");
-  const [patientLoading, setPatientLoading] = useState(false);
-  const [patientError, setPatientError] = useState(null);
+  const [patientSearchText, setPatientSearchText]       = useState("");
+  const [patientLoading, setPatientLoading]             = useState(false);
+  const [patientError, setPatientError]                 = useState(null);
   const [patientDiagnosisList, setPatientDiagnosisList] = useState([]);
+
+  const [ecgPatientName, setEcgPatientName] = useState("");
+  const [ecgImage, setEcgImage]             = useState(null);
+  const [ecgLoading, setEcgLoading]         = useState(false);
+  const [ecgResult, setEcgResult]           = useState(null);
+  const [ecgError, setEcgError]             = useState(null);
+  const ecgPulseAnim                        = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     (async () => {
       const { status } = await Audio.requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission required", "Microphone permission is required to record audio.");
-      }
+      if (status !== "granted") Alert.alert("Permission required", "Microphone permission is required.");
     })();
   }, []);
 
-  const handleInputChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (heartResult) setHeartResult(null);
+  // ── All stable callbacks declared unconditionally at top level ────────────
+
+  // Dismiss handlers — declared here, never inside JSX
+  const dismissAudioError   = useCallback(() => setAudioError(null),   []);
+  const dismissHeartError   = useCallback(() => setHeartError(null),   []);
+  const dismissEcgError     = useCallback(() => setEcgError(null),     []);
+  const dismissPatientError = useCallback(() => setPatientError(null), []);
+
+  // Field change handlers — stable references so memo is never broken
+  const fieldHandlers = {
+    patientName:    useCallback(v => setFormData(p => ({ ...p, patientName: v })),    []),
+    Age:            useCallback(v => setFormData(p => ({ ...p, Age: v })),            []),
+    Sex:            useCallback(v => setFormData(p => ({ ...p, Sex: v })),            []),
+    ChestPainType:  useCallback(v => setFormData(p => ({ ...p, ChestPainType: v })),  []),
+    RestingBP:      useCallback(v => setFormData(p => ({ ...p, RestingBP: v })),      []),
+    Cholesterol:    useCallback(v => setFormData(p => ({ ...p, Cholesterol: v })),    []),
+    FastingBS:      useCallback(v => setFormData(p => ({ ...p, FastingBS: v })),      []),
+    RestingECG:     useCallback(v => setFormData(p => ({ ...p, RestingECG: v })),     []),
+    MaxHR:          useCallback(v => setFormData(p => ({ ...p, MaxHR: v })),          []),
+    ExerciseAngina: useCallback(v => setFormData(p => ({ ...p, ExerciseAngina: v })), []),
+    Oldpeak:        useCallback(v => setFormData(p => ({ ...p, Oldpeak: v })),        []),
+    ST_Slope:       useCallback(v => setFormData(p => ({ ...p, ST_Slope: v })),       []),
   };
 
-  /* ================= AUDIO RECORDING & PREDICTION ================= */
+  const handleAudioNameChange  = useCallback(v => setAudioPatientName(v), []);
+  const handleEcgNameChange    = useCallback(v => setEcgPatientName(v),   []);
+  const handleSearchTextChange = useCallback(v => setPatientSearchText(v), []);
 
-  const startRecording = async () => {
+  const getMedicineRecommendations = useCallback((riskLevel) => {
+    switch (riskLevel?.toLowerCase()) {
+      case "high":     return ["Aspirin (daily)", "Statins (for cholesterol)", "Beta-blockers (for heart rate)"];
+      case "medium":   return ["Aspirin (as needed)", "Lifestyle changes recommended"];
+      case "low":
+      case "negative": return ["No immediate medication; maintain healthy lifestyle"];
+      default:         return ["Consult a doctor for recommendations"];
+    }
+  }, []);
+
+  // ── Audio ──────────────────────────────────────────────────────────────────
+
+  const startRecording = useCallback(async () => {
     try {
       setAudioDiagnosisResult(null);
+      setAudioError(null);
       setIsRecording(true);
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording } = await Audio.Recording.createAsync(Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY);
       setRecording(recording);
     } catch (error) {
-      Alert.alert("Error", "Failed to start recording: " + error.message);
       setIsRecording(false);
+      setAudioError({ type: "general", message: "Failed to start recording: " + error.message });
     }
-  };
+  }, []);
 
-  const stopRecording = async () => {
+  const stopRecording = useCallback(async () => {
     if (!recording) return;
-    
     if (!audioPatientName.trim()) {
-      Alert.alert("Error", "Please enter patient name before recording.");
+      setAudioError({ type: "general", message: "Please enter patient name before stopping." });
       setIsRecording(false);
       await recording.stopAndUnloadAsync();
       setRecording(null);
       return;
     }
-
     try {
       setIsRecording(false);
       setIsUploading(true);
+      setAudioError(null);
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
-
       if (!uri) {
-        Alert.alert("Error", "Recording URI not found.");
+        setAudioError({ type: "general", message: "Recording URI not found." });
         setIsUploading(false);
         return;
       }
-
-      const formDataToSend = new FormData();
-      formDataToSend.append("patientName", audioPatientName.trim());
-
-      // Check if running on web
-      if (uri.startsWith('blob:') || uri.startsWith('data:')) {
-        // Web platform - fetch the blob and convert to File
-        const response = await fetch(uri);
-        const blob = await response.blob();
-        const fileName = `recording_${Date.now()}.m4a`;
-        const file = new File([blob], fileName, { type: "audio/m4a" });
-        formDataToSend.append("audioFile", file, fileName);
+      const fd = new FormData();
+      fd.append("patientName", audioPatientName.trim());
+      if (uri.startsWith("blob:") || uri.startsWith("data:")) {
+        const r = await fetch(uri);
+        const blob = await r.blob();
+        const fn = `recording_${Date.now()}.m4a`;
+        fd.append("audioFile", new File([blob], fn, { type: "audio/m4a" }), fn);
       } else {
-        // Mobile platform - use the existing approach
-        const fileParts = uri.split("/");
-        const fileName = fileParts[fileParts.length - 1];
-        const fileType = "audio/m4a";
-        formDataToSend.append("audioFile", {
-          uri,
-          name: fileName,
-          type: fileType,
-        });
+        const parts = uri.split("/");
+        fd.append("audioFile", { uri, name: parts[parts.length - 1], type: "audio/m4a" });
       }
-
-      const response = await apiClient.post(`${BASE_URL}:8080/api/heart/predict/audio`, formDataToSend, {
+      const response = await apiClient.post(`${BASE_URL}:8080/api/heart/predict/audio`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-
       if (response.status === 200 && response.data) {
-        // Handle the new response format: {success, status, message, data: {riskLevel, probability}, timestamp}
-        const apiResponse = response.data;
-        const result = apiResponse.data || apiResponse;
-        
-        // Transform the response to match the display format
-        const transformedResult = {
+        const result = response.data.data || response.data;
+        setAudioDiagnosisResult({
           date: new Date().toISOString().split("T")[0],
           symptoms: result.inputData ? [
             `Age: ${result.inputData.Age || "N/A"}`,
-            `Sex: ${result.inputData.Sex === "M" ? "Male" : result.inputData.Sex === "F" ? "Female" : "N/A"}`,
-            `Chest Pain Type: ${result.inputData.ChestPainType || "N/A"}`,
-            `Resting BP: ${result.inputData.RestingBP || "N/A"} mm Hg`,
+            `Sex: ${result.inputData.Sex === "M" ? "Male" : "Female"}`,
+            `Chest Pain: ${result.inputData.ChestPainType || "N/A"}`,
+            `BP: ${result.inputData.RestingBP || "N/A"} mm Hg`,
             `Cholesterol: ${result.inputData.Cholesterol || "N/A"} mg/dl`,
-            `Fasting BS: ${result.inputData.FastingBS === "1" ? "High (>120 mg/dl)" : "Normal"}`,
-            `Resting ECG: ${result.inputData.RestingECG || "N/A"}`,
-            `Max HR: ${result.inputData.MaxHR || "N/A"}`,
-            `Exercise Angina: ${result.inputData.ExerciseAngina === "Y" ? "Yes" : "No"}`,
-            `Oldpeak: ${result.inputData.Oldpeak || "N/A"} (ST depression)`,
-            `ST Slope: ${result.inputData.ST_Slope || "N/A"}`,
-          ].filter((s) => !s.includes("N/A")) : ["Audio analysis completed"],
+          ].filter(s => !s.includes("N/A")) : ["Audio analysis completed"],
           prediction: `Heart Disease ${result.riskLevel || "Unknown"} (${((result.probability || 0) * 100).toFixed(1)}%)`,
           medicines: getMedicineRecommendations(result.riskLevel),
           transcript: result.transcript || "",
           summary: result.summary || "",
           deIdentifiedTranscript: result.deIdentifiedTranscript || "",
-        };
-
-        setAudioDiagnosisResult(transformedResult);
-      } else {
-        Alert.alert("Error", "Failed to get prediction from server.");
+        });
       }
     } catch (error) {
-      Alert.alert("Upload Error", error.response?.data?.error || error.message || "Something went wrong!");
+      setAudioError(parseApiError(error));
     } finally {
       setIsUploading(false);
       setRecording(null);
     }
-  };
+  }, [recording, audioPatientName, getMedicineRecommendations]);
 
-  const getMedicineRecommendations = (riskLevel) => {
-    switch (riskLevel?.toLowerCase()) {
-      case "high":
-        return ["Aspirin (daily)", "Statins (for cholesterol)", "Beta-blockers (for heart rate)"];
-      case "medium":
-        return ["Aspirin (as needed)", "Lifestyle changes recommended"];
-      case "low":
-      case "negative":
-        return ["No immediate medication; maintain healthy lifestyle"];
-      default:
-        return ["Consult a doctor for recommendations"];
-    }
-  };
+  const handleRecord = useCallback(() => {
+    if (isRecording) stopRecording();
+    else startRecording();
+  }, [isRecording, startRecording, stopRecording]);
 
-  /* ================= TEXT PREDICTION ================= */
+  // ── Text Prediction ────────────────────────────────────────────────────────
 
-  const handleHeartSubmit = async () => {
-    const requiredFields = ["patientName", "Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak"];
-    for (let field of requiredFields) {
-      if (!formData[field] || formData[field].toString().trim() === "") {
-        Alert.alert("Error", `${field.replace(/([A-Z])/g, " $1").trim()} is required.`);
+  const handleHeartSubmit = useCallback(async () => {
+    const required = ["patientName", "Age", "RestingBP", "Cholesterol", "MaxHR", "Oldpeak"];
+    for (let f of required) {
+      if (!formData[f]?.toString().trim()) {
+        setHeartError({ type: "general", message: `${f.replace(/([A-Z])/g, " $1").trim()} is required.` });
         return;
       }
-      if (field !== "patientName" && isNaN(parseFloat(formData[field]))) {
-        Alert.alert("Error", `${field} must be a number.`);
+      if (f !== "patientName" && isNaN(parseFloat(formData[f]))) {
+        setHeartError({ type: "general", message: `${f.replace(/([A-Z])/g, " $1").trim()} must be a number.` });
         return;
       }
     }
-    if (![0, 1].includes(parseInt(formData.FastingBS))) {
-      Alert.alert("Error", "FastingBS must be 0 or 1.");
-      return;
-    }
-
     try {
       setIsSubmitting(true);
       setHeartResult(null);
-
-      const patientData = [
-        {
+      setHeartError(null);
+      const body = {
+        patientName: formData.patientName.trim(),
+        patientData: [{
           Age: parseInt(formData.Age),
           Sex: formData.Sex,
           ChestPainType: formData.ChestPainType,
@@ -391,808 +709,561 @@ export default function DoctorHomeScreen({ onLogout }) {
           ExerciseAngina: formData.ExerciseAngina,
           Oldpeak: parseFloat(formData.Oldpeak),
           ST_Slope: formData.ST_Slope,
-        },
-      ];
-
-      const requestBody = {
-        patientName: formData.patientName.trim(),
-        patientData,
+        }],
       };
-
-      const response = await apiClient.post(`${BASE_URL}:8080/api/heart/predict/text`, requestBody, {
+      const response = await apiClient.post(`${BASE_URL}:8080/api/heart/predict/text`, body, {
         headers: { "Content-Type": "application/json" },
       });
-
       if (response.status === 200 && response.data) {
-        // Handle the new response format: {success, status, message, data: {riskLevel, probability}, timestamp}
-        const apiResponse = response.data;
-        const result = apiResponse.data || apiResponse;
-        
-        // Set the result with the correct structure
-        setHeartResult({
-          riskLevel: result.riskLevel || "Unknown",
-          probability: result.probability || 0
-        });
-      } else {
-        Alert.alert("Error", "Failed to get prediction from server.");
+        const result = response.data.data || response.data;
+        setHeartResult({ riskLevel: result.riskLevel || "Unknown", probability: result.probability || 0 });
       }
     } catch (error) {
-      Alert.alert("Submission Error", error.response?.data || error.message || "Something went wrong!");
+      setHeartError(parseApiError(error));
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [formData]);
 
-  /* ================= PATIENT HISTORY SEARCH ================= */
+  // ── Patient History ────────────────────────────────────────────────────────
 
-  const handlePatientSearch = async () => {
-    const searchName = patientSearchText.trim();
-    if (!searchName) {
-      Alert.alert("Error", "Please enter a patient name.");
+  const handlePatientSearch = useCallback(async () => {
+    const name = patientSearchText.trim();
+    if (!name) {
+      setPatientError({ type: "general", message: "Please enter a patient name to search." });
       return;
     }
-
     setPatientLoading(true);
     setPatientError(null);
     setPatientDiagnosisList([]);
-
     try {
-      const response = await axios.get(
-        `${BASE_URL}:8080/api/patient/${encodeURIComponent(searchName)}/predictions`,
-        { headers: { "Content-Type": "application/json" }, timeout: 10000 }
-      );
-
+      const response = await axios.get(`${BASE_URL}:8080/api/patient/${encodeURIComponent(name)}/predictions`, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 10000,
+      });
       if (response.status === 200 && response.data) {
-        // Handle the new response format: {success, status, message, data: [...], timestamp}
-        const apiResponse = response.data;
-        const predictions = apiResponse.data || apiResponse;
-        
-        // Ensure predictions is an array
-        const predictionsArray = Array.isArray(predictions) ? predictions : [];
-        
-        const transformedData = predictionsArray
-          .filter((pred) => pred && pred.date && pred.riskLevel)
-          .map((prediction) => {
-            let date;
-            if (typeof prediction.date === "string") {
-              date = new Date(prediction.date).toISOString().split("T")[0];
-            } else {
-              date = new Date().toISOString().split("T")[0];
-            }
-
+        const predictions = Array.isArray(response.data.data || response.data)
+          ? (response.data.data || response.data) : [];
+        const transformed = predictions
+          .filter(p => p && p.date && p.riskLevel)
+          .map(prediction => {
             const inputData = prediction.inputData || {};
             const symptoms = [
               `Age: ${inputData.Age || "N/A"}`,
-              `Sex: ${inputData.Sex === "M" ? "Male" : inputData.Sex === "F" ? "Female" : "N/A"}`,
-              `Chest Pain Type: ${inputData.ChestPainType || "N/A"}`,
-              `Resting BP: ${inputData.RestingBP || "N/A"} mm Hg`,
+              `Sex: ${inputData.Sex === "M" ? "Male" : "Female"}`,
+              `Chest Pain: ${inputData.ChestPainType || "N/A"}`,
+              `BP: ${inputData.RestingBP || "N/A"} mm Hg`,
               `Cholesterol: ${inputData.Cholesterol || "N/A"} mg/dl`,
-              `Fasting BS: ${inputData.FastingBS === 1 ? "High (>120 mg/dl)" : "Normal"}`,
+              `Fasting BS: ${inputData.FastingBS === 1 ? "High" : "Normal"}`,
               `Resting ECG: ${inputData.RestingECG || "N/A"}`,
               `Max HR: ${inputData.MaxHR || "N/A"}`,
               `Exercise Angina: ${inputData.ExerciseAngina === "Y" ? "Yes" : "No"}`,
-              `Oldpeak: ${inputData.Oldpeak || "N/A"} (ST depression)`,
+              `Oldpeak: ${inputData.Oldpeak || "N/A"}`,
               `ST Slope: ${inputData.ST_Slope || "N/A"}`,
-            ].filter((s) => !s.includes("N/A"));
-
-            const riskLevel = prediction.riskLevel || "Unknown";
-            const probability = ((prediction.probability || 0) * 100).toFixed(1);
-            const predictionStr = `Heart Disease ${riskLevel} (${probability}%)`;
-
+            ].filter(s => !s.includes("N/A"));
             return {
-              date,
+              date: new Date(prediction.date).toISOString().split("T")[0],
               symptoms,
-              prediction: predictionStr,
-              medicines: getMedicineRecommendations(riskLevel),
+              prediction: `Heart Disease ${prediction.riskLevel} (${((prediction.probability || 0) * 100).toFixed(1)}%)`,
+              medicines: getMedicineRecommendations(prediction.riskLevel),
               transcript: inputData.transcript || "",
               summary: prediction.summary || "",
               deIdentifiedTranscript: prediction.deIdentifiedTranscript || "",
             };
           })
           .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        setPatientDiagnosisList(transformedData);
-      } else {
-        setPatientDiagnosisList([]);
+        setPatientDiagnosisList(transformed);
+        if (transformed.length === 0) {
+          setPatientError({ type: "general", message: `No predictions found for "${name}".` });
+        }
       }
     } catch (error) {
-      let errorMsg = "Failed to fetch patient history.";
-      if (error.response) {
-        if (error.response.status === 404) {
-          errorMsg = `No predictions found for patient "${searchName}".`;
-        } else if (error.response.data) {
-          errorMsg =
-            typeof error.response.data === "string"
-              ? error.response.data
-              : error.response.data.message || errorMsg;
-        }
+      if (error.response?.status === 404) {
+        setPatientError({ type: "general", message: `No predictions found for "${name}".` });
       } else if (error.code === "ECONNABORTED") {
-        errorMsg = "Request timed out. Please check your connection.";
+        setPatientError({ type: "general", message: "Request timed out. Please try again." });
       } else {
-        errorMsg = error.message || errorMsg;
+        setPatientError(parseApiError(error));
       }
-      setPatientError(errorMsg);
-      setPatientDiagnosisList([]);
     } finally {
       setPatientLoading(false);
     }
-  };
+  }, [patientSearchText, getMedicineRecommendations]);
 
-  const handlePatientRetry = () => {
+  const handleRetrySearch = useCallback(() => {
     setPatientError(null);
     handlePatientSearch();
-  };
+  }, [handlePatientSearch]);
+
+  // ── ECG ────────────────────────────────────────────────────────────────────
+
+  const startEcgPulse = useCallback(() => {
+    Animated.loop(Animated.sequence([
+      Animated.timing(ecgPulseAnim, { toValue: 1.03, duration: 700, useNativeDriver: true }),
+      Animated.timing(ecgPulseAnim, { toValue: 1,    duration: 700, useNativeDriver: true }),
+    ])).start();
+  }, [ecgPulseAnim]);
+
+  const stopEcgPulse = useCallback(() => {
+    ecgPulseAnim.stopAnimation();
+    Animated.timing(ecgPulseAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+  }, [ecgPulseAnim]);
+
+  const pickEcgImage = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      setEcgError({ type: "general", message: "Please allow access to your photo library." });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 1,
+    });
+    if (!result.canceled && result.assets?.length > 0) {
+      const asset = result.assets[0];
+      setEcgImage({ uri: asset.uri, name: asset.fileName || asset.uri.split("/").pop() || `ecg_${Date.now()}.jpg`, type: asset.mimeType || "image/jpeg" });
+      setEcgResult(null);
+      setEcgError(null);
+    }
+  }, []);
+
+  const takeEcgPhoto = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      setEcgError({ type: "general", message: "Please allow camera access." });
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 1 });
+    if (!result.canceled && result.assets?.length > 0) {
+      const asset = result.assets[0];
+      setEcgImage({ uri: asset.uri, name: asset.fileName || `ecg_photo_${Date.now()}.jpg`, type: asset.mimeType || "image/jpeg" });
+      setEcgResult(null);
+      setEcgError(null);
+    }
+  }, []);
+
+  const handleEcgAnalyze = useCallback(async () => {
+    if (!ecgPatientName.trim()) {
+      setEcgError({ type: "general", message: "Please enter the patient name." });
+      return;
+    }
+    if (!ecgImage) {
+      setEcgError({ type: "general", message: "Please select or capture an ECG image." });
+      return;
+    }
+    setEcgLoading(true);
+    setEcgError(null);
+    setEcgResult(null);
+    startEcgPulse();
+    try {
+      const data = new FormData();
+      data.append("patientName", ecgPatientName.trim());
+      const isWebPlatform = typeof document !== "undefined";
+      if (isWebPlatform) {
+        const fetchResponse = await fetch(ecgImage.uri);
+        const blob = await fetchResponse.blob();
+        data.append("ecgImage", new File([blob], ecgImage.name, { type: ecgImage.type || "image/jpeg" }));
+      } else {
+        data.append("ecgImage", { uri: ecgImage.uri, name: ecgImage.name, type: ecgImage.type || "image/jpeg" });
+      }
+      const response = await apiClient.post(`${BASE_URL}:8080/api/ecg/predict`, data, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
+        transformRequest: (d) => d,
+      });
+      if (response.status === 200 && response.data) {
+        setEcgResult(response.data?.data ?? response.data);
+      } else {
+        setEcgError({ type: "general", message: "Unexpected response from ECG server." });
+      }
+    } catch (err) {
+      setEcgError(parseApiError(err));
+    } finally {
+      setEcgLoading(false);
+      stopEcgPulse();
+    }
+  }, [ecgPatientName, ecgImage, startEcgPulse, stopEcgPulse]);
+
+  const ecgDiagConfig = ecgResult
+    ? (ECG_DIAGNOSIS_CONFIG[ecgResult.diagnosis] ?? ECG_DIAGNOSIS_CONFIG["Abnormal"])
+    : null;
+
+  // ─── RENDER ───────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <LinearGradient colors={["#0F172A", "#1E3A8A", "#2563EB"]} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 20 }}>
-          <View style={[styles.container, isWeb && { width: "70%", alignSelf: "center" }]}>
-            <Text style={styles.title}>Heart Disease Prediction System</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
 
-            {/* ================= AUDIO RECORDING SECTION ================= */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Audio-Based Prediction</Text>
-              <Text style={styles.sectionSubtitle}>Record patient consultation for automatic analysis</Text>
-            </View>
-
-            <Text style={styles.label}>Patient Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter patient name (e.g., John Doe)"
-              value={audioPatientName}
-              onChangeText={setAudioPatientName}
-              editable={!isRecording && !isUploading}
-            />
-
-            <View style={styles.recordSection}>
-              <TouchableOpacity
-                style={styles.recordButtonShadow}
-                onPress={isRecording ? stopRecording : startRecording}
-                activeOpacity={0.85}
-                disabled={isUploading}
-              >
-                <LinearGradient
-                  colors={isRecording ? ["#e05247", "#d8433f"] : ["#5A81F8", "#3b62ce"]}
-                  style={styles.recordButton}
-                  start={{ x: 0.0, y: 0.0 }}
-                  end={{ x: 1.0, y: 1.0 }}
-                >
-                  <Ionicons name={isRecording ? "stop-circle" : "mic"} size={50} color="white" />
-                  <Text style={styles.recordButtonText}>
-                    {isRecording ? "Stop Recording & Analyze" : "Start Recording"}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              {isUploading && (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#5A81F8" />
-                  <Text style={styles.loadingText}>Analyzing Audio & Predicting...</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Audio Prediction Result */}
-            {audioDiagnosisResult && (
-              <View style={{ marginBottom: 30 }}>
-                {renderPatientDiagnosisItem({ item: audioDiagnosisResult })}
-              </View>
-            )}
-
-            {/* ================= TEXT-BASED PREDICTION SECTION ================= */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Manual Heart Disease Prediction</Text>
-              <Text style={styles.sectionSubtitle}>Enter patient details manually for prediction</Text>
-            </View>
-
-            <View style={styles.formSection}>
-              {/* Patient Name */}
-              <Text style={styles.label}>Patient Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter patient name (e.g., John Doe)"
-                value={formData.patientName}
-                onChangeText={(value) => handleInputChange("patientName", value)}
-                editable={!isSubmitting}
-              />
-
-              {/* Age */}
-              <Text style={styles.label}>Age</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter age (e.g., 65)"
-                keyboardType="numeric"
-                value={formData.Age}
-                onChangeText={(value) => handleInputChange("Age", value)}
-                editable={!isSubmitting}
-              />
-
-              {/* Sex */}
-              <Text style={styles.label}>Sex</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.Sex}
-                  onValueChange={(value) => handleInputChange("Sex", value)}
-                  style={styles.picker}
-                  enabled={!isSubmitting}
-                >
-                  <Picker.Item label="Male (M)" value="M" />
-                  <Picker.Item label="Female (F)" value="F" />
-                </Picker>
-              </View>
-
-              {/* ChestPainType */}
-              <Text style={styles.label}>Chest Pain Type</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.ChestPainType}
-                  onValueChange={(value) => handleInputChange("ChestPainType", value)}
-                  style={styles.picker}
-                  enabled={!isSubmitting}
-                >
-                  <Picker.Item label="ATA (Asymptomatic)" value="ATA" />
-                  <Picker.Item label="NAP (Non-Anginal Pain)" value="NAP" />
-                  <Picker.Item label="ASY (Atypical Angina)" value="ASY" />
-                  <Picker.Item label="TA (Typical Angina)" value="TA" />
-                </Picker>
-              </View>
-
-              {/* RestingBP */}
-              <Text style={styles.label}>Resting Blood Pressure (mm Hg)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter resting BP (e.g., 180)"
-                keyboardType="numeric"
-                value={formData.RestingBP}
-                onChangeText={(value) => handleInputChange("RestingBP", value)}
-                editable={!isSubmitting}
-              />
-
-              {/* Cholesterol */}
-              <Text style={styles.label}>Cholesterol (mg/dl)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter cholesterol (e.g., 350)"
-                keyboardType="numeric"
-                value={formData.Cholesterol}
-                onChangeText={(value) => handleInputChange("Cholesterol", value)}
-                editable={!isSubmitting}
-              />
-
-              {/* FastingBS */}
-              <Text style={styles.label}>Fasting Blood Sugar (120 mg/dl)</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.FastingBS}
-                  onValueChange={(value) => handleInputChange("FastingBS", value)}
-                  style={styles.picker}
-                  enabled={!isSubmitting}
-                >
-                  <Picker.Item label="No (0)" value="0" />
-                  <Picker.Item label="Yes (1)" value="1" />
-                </Picker>
-              </View>
-
-              {/* RestingECG */}
-              <Text style={styles.label}>Resting ECG</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.RestingECG}
-                  onValueChange={(value) => handleInputChange("RestingECG", value)}
-                  style={styles.picker}
-                  enabled={!isSubmitting}
-                >
-                  <Picker.Item label="Normal" value="Normal" />
-                  <Picker.Item label="ST" value="ST" />
-                  <Picker.Item label="LVH" value="LVH" />
-                </Picker>
-              </View>
-
-              {/* MaxHR */}
-              <Text style={styles.label}>Maximum Heart Rate Achieved</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter max HR (e.g., 95)"
-                keyboardType="numeric"
-                value={formData.MaxHR}
-                onChangeText={(value) => handleInputChange("MaxHR", value)}
-                editable={!isSubmitting}
-              />
-
-              {/* ExerciseAngina */}
-              <Text style={styles.label}>Exercise Induced Angina</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.ExerciseAngina}
-                  onValueChange={(value) => handleInputChange("ExerciseAngina", value)}
-                  style={styles.picker}
-                  enabled={!isSubmitting}
-                >
-                  <Picker.Item label="No (N)" value="N" />
-                  <Picker.Item label="Yes (Y)" value="Y" />
-                </Picker>
-              </View>
-
-              {/* Oldpeak */}
-              <Text style={styles.label}>Oldpeak (ST depression)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter oldpeak (e.g., 4.2)"
-                keyboardType="decimal-pad"
-                value={formData.Oldpeak}
-                onChangeText={(value) => handleInputChange("Oldpeak", value)}
-                editable={!isSubmitting}
-              />
-
-              {/* ST_Slope */}
-              <Text style={styles.label}>ST Slope</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.ST_Slope}
-                  onValueChange={(value) => handleInputChange("ST_Slope", value)}
-                  style={styles.picker}
-                  enabled={!isSubmitting}
-                >
-                  <Picker.Item label="Up" value="Up" />
-                  <Picker.Item label="Flat" value="Flat" />
-                  <Picker.Item label="Down" value="Down" />
-                </Picker>
-              </View>
-            </View>
-
-            {/* Submit Button */}
-            <TouchableOpacity
-              style={[styles.submitButtonShadow, isSubmitting && styles.disabledButton]}
-              onPress={handleHeartSubmit}
-              activeOpacity={0.85}
-              disabled={isSubmitting}
-            >
-              <LinearGradient
-                colors={isSubmitting ? ["#ccc", "#ccc"] : ["#5A81F8", "#3b62ce"]}
-                style={styles.submitButton}
-                start={{ x: 0.0, y: 0.0 }}
-                end={{ x: 1.0, y: 1.0 }}
-              >
-                <Ionicons name={isSubmitting ? "hourglass" : "send"} size={24} color="white" />
-                <Text style={styles.submitButtonText}>{isSubmitting ? "Analyzing..." : "Predict Heart Risk"}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Prediction Result Card */}
-            {heartResult && (
-              <LinearGradient
-                colors={["#e74c3c", "#f39c12"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.resultCardGradient}
-              >
-                <View style={styles.resultCard}>
-                  <View style={[styles.cardIconContainer, { backgroundColor: "#f1c40f" }]}>
-                    <FontAwesome5 name="heart" size={28} color="#e74c3c" />
-                  </View>
-                  <Text style={styles.cardTitle}>Heart Disease Prediction</Text>
-                  <Text style={styles.resultRisk}>
-                    Risk Level: <Text style={styles.riskBold}>{heartResult.riskLevel}</Text>
-                  </Text>
-                  <Text style={styles.resultProb}>
-                    Probability: <Text style={styles.probBold}>{(heartResult.probability * 100).toFixed(2)}%</Text>
-                  </Text>
-                </View>
-              </LinearGradient>
-            )}
-
-            {/* ================= PATIENT HISTORY SEARCH ================= */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Patient History Search</Text>
-              <Text style={styles.sectionSubtitle}>
-                Search for a patient's past predictions and recommendations
-              </Text>
-            </View>
-
-            <View style={styles.searchSection}>
-              <View style={styles.searchContainer}>
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Enter patient name (e.g., John Doe)..."
-                  placeholderTextColor="#999"
-                  value={patientSearchText}
-                  onChangeText={setPatientSearchText}
-                  multiline={false}
-                  returnKeyType="search"
-                  onSubmitEditing={handlePatientSearch}
-                  editable={!patientLoading}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.searchButton,
-                    (patientLoading || !patientSearchText.trim()) && styles.disabledButton,
-                  ]}
-                  onPress={handlePatientSearch}
-                  disabled={patientLoading || !patientSearchText.trim()}
-                >
-                  <Ionicons
-                    name={patientLoading ? "hourglass" : "search"}
-                    size={24}
-                    color={patientLoading || !patientSearchText.trim() ? "#999" : "white"}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {patientLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#5A81F8" />
-                <Text style={styles.loadingText}>Searching patient history...</Text>
-              </View>
-            ) : patientError ? (
-              <View style={styles.errorContainer}>
-                <FontAwesome5 name="exclamation-triangle" size={48} color="#e74c3c" />
-                <Text style={styles.errorText}>{patientError}</Text>
-                <TouchableOpacity onPress={handlePatientRetry} style={styles.retryButton}>
-                  <Text style={styles.retryButtonText}>Retry Search</Text>
-                </TouchableOpacity>
-              </View>
-            ) : patientDiagnosisList && patientDiagnosisList.length > 0 ? (
-              <FlatList
-                data={patientDiagnosisList}
-                renderItem={renderPatientDiagnosisItem}
-                keyExtractor={(item, index) => `${item.date}-${index}`}
-                contentContainerStyle={patientStyles.listContainer}
-                scrollEnabled={false}
-                style={{ marginBottom: 20 }}
-              />
-            ) : patientSearchText.trim() && !patientLoading ? (
-              <View style={styles.noDataContainer}>
-                <FontAwesome5 name="heart" size={64} color="#95a5a6" />
-                <Text style={styles.noDataText}>No predictions found for this patient.</Text>
-                <Text style={styles.noDataSubtext}>Create a new prediction using the sections above.</Text>
-              </View>
-            ) : null}
-
-            {/* Logout Button */}
-            <View style={styles.logoutContainer}>
-              <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-                <Text style={styles.logoutButtonText}>LOGOUT</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
+      <LinearGradient colors={G.navy} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={main.topBar}>
+        <LinearGradient colors={["rgba(255,255,255,0.2)", "rgba(255,255,255,0.07)"]} style={main.topBarIcon}>
+          <MaterialCommunityIcons name="heart-pulse" size={24} color="#fff" />
+        </LinearGradient>
+        <View style={{ flex: 1 }}>
+          <Text style={main.topBarTitle}>CardioAI</Text>
+          <Text style={main.topBarSub}>Heart Disease Prediction System</Text>
+        </View>
+        <TouchableOpacity onPress={onLogout} style={main.logoutBtn}>
+          <MaterialCommunityIcons name="logout" size={15} color="#fff" />
+          <Text style={main.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </LinearGradient>
+
+      <ScrollView
+        contentContainerStyle={{ padding: isWeb ? 28 : 16, paddingBottom: 60 }}
+        showsVerticalScrollIndicator={false}
+        style={{ backgroundColor: C.bg }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[{ flex: 1 }, isWeb && { width: 780, alignSelf: "center" }]}>
+
+          {/* ══ AUDIO PREDICTION ══ */}
+          <AudioSection
+            audioPatientName={audioPatientName}
+            onNameChange={handleAudioNameChange}
+            isRecording={isRecording}
+            isUploading={isUploading}
+            onRecord={handleRecord}
+            audioError={audioError}
+            onDismissError={dismissAudioError}
+          />
+          {audioDiagnosisResult ? (
+            <View style={{ marginTop: 12 }}>
+              <PatientDiagnosisItem item={audioDiagnosisResult} />
+            </View>
+          ) : null}
+
+          {/* ══ MANUAL PREDICTION ══ */}
+          <ManualPredictionSection
+            formData={formData}
+            onFieldChange={fieldHandlers}
+            isSubmitting={isSubmitting}
+            onSubmit={handleHeartSubmit}
+          />
+          {heartError ? <ErrorCard error={heartError} onDismiss={dismissHeartError} /> : null}
+          {heartResult ? (
+            <View style={main.resultCard}>
+              <LinearGradient
+                colors={heartResult.riskLevel?.toLowerCase() === "high" ? G.red : G.green}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={main.resultCardInner}
+              >
+                <View style={main.resultIconWrap}>
+                  <MaterialCommunityIcons name="heart-pulse" size={30} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={main.resultLabel}>Risk Level</Text>
+                  <Text style={main.resultValue}>{heartResult.riskLevel}</Text>
+                </View>
+                <View style={main.resultProbWrap}>
+                  <Text style={main.resultProbValue}>{(heartResult.probability * 100).toFixed(1)}%</Text>
+                  <Text style={main.resultProbLabel}>Probability</Text>
+                </View>
+              </LinearGradient>
+            </View>
+          ) : null}
+
+          {/* ══ ECG ANALYSIS ══ */}
+          <ECGSection
+            ecgPatientName={ecgPatientName}
+            onNameChange={handleEcgNameChange}
+            ecgImage={ecgImage}
+            ecgLoading={ecgLoading}
+            ecgError={ecgError}
+            onDismissError={dismissEcgError}
+            ecgPulseAnim={ecgPulseAnim}
+            onPickImage={pickEcgImage}
+            onTakePhoto={takeEcgPhoto}
+            onAnalyze={handleEcgAnalyze}
+          />
+
+          {/* ECG Results */}
+          {ecgResult && ecgDiagConfig ? (
+            <View style={{ marginTop: 16 }}>
+              <LinearGradient colors={ecgDiagConfig.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={ecgS.diagBanner}>
+                <View style={{ flex: 1 }}>
+                  <Text style={ecgS.diagLabel}>DIAGNOSIS</Text>
+                  <Text style={ecgS.diagName}>{ecgResult.diagnosis}</Text>
+                  <Text style={ecgS.diagFullName}>{ecgDiagConfig.label}</Text>
+                </View>
+                <View style={ecgS.diagConfidWrap}>
+                  <Text style={ecgS.diagConfidValue}>{ecgResult.confidence?.toFixed(1)}%</Text>
+                  <Text style={ecgS.diagConfidLabel}>Confidence</Text>
+                </View>
+              </LinearGradient>
+
+              <View style={ecgS.patientRow}>
+                <MaterialCommunityIcons name="account-circle" size={15} color={C.blue} />
+                <Text style={ecgS.patientRowText}>
+                  Patient: <Text style={{ color: C.textPrimary, fontWeight: "700" }}>{ecgPatientName}</Text>
+                </Text>
+              </View>
+
+              <SectionCard>
+                <ECGResultSection title="Clinical Interpretation" icon="stethoscope" iconColor={C.blue} defaultOpen>
+                  <Text style={ecgS.interpretText}>{ecgResult.interpretation}</Text>
+                </ECGResultSection>
+                <ECGResultSection title="Territorial Distribution" icon="map-marker-radius" iconColor={C.amber} defaultOpen>
+                  <Text style={ecgS.primaryTerr}>
+                    Primary: <Text style={{ color: TERRITORY_COLORS[ecgResult.primaryTerritory] ?? C.textPrimary, fontWeight: "700" }}>
+                      {ecgResult.primaryTerritory}
+                    </Text>
+                  </Text>
+                  {ecgResult.territorialDistribution &&
+                    Object.entries(ecgResult.territorialDistribution).map(([k, v]) => (
+                      <ECGTerritoryBar key={k} label={k} value={v} color={TERRITORY_COLORS[k] ?? C.blue} />
+                    ))}
+                </ECGResultSection>
+                <ECGResultSection title="Dominant Leads" icon="chart-bar" iconColor={C.green} defaultOpen>
+                  {ecgResult.dominantLeads?.map((item, idx) => (
+                    <ECGLeadItem key={idx} lead={item.lead} score={item.score} rank={idx} />
+                  ))}
+                </ECGResultSection>
+                <ECGResultSection title="Waveform Zone Analysis" icon="wave" iconColor={C.purple} defaultOpen>
+                  <View style={ecgS.zoneGrid}>
+                    {ecgResult.waveformZones &&
+                      Object.entries(ecgResult.waveformZones).map(([zone, val]) => (
+                        <ECGZonePill key={zone}
+                          label={zone.replace("_zone", "").replace("_", " ")}
+                          value={val} color={ZONE_COLORS[zone] ?? C.blue}
+                          dominant={zone === ecgResult.dominantZone} />
+                      ))}
+                  </View>
+                </ECGResultSection>
+                <ECGResultSection title="Injury Pattern Indices" icon="heart-broken" iconColor={C.red} defaultOpen={false}>
+                  <View style={ecgS.indicesRow}>
+                    <View style={[ecgS.indexCard, { backgroundColor: C.redLight, borderColor: C.red + "40" }]}>
+                      <Text style={ecgS.indexTitle}>Acute Injury</Text>
+                      <Text style={[ecgS.indexValue, { color: C.red }]}>
+                        {ecgResult.injuryIndices?.acute_injury_index?.toFixed(4)}
+                      </Text>
+                    </View>
+                    <View style={[ecgS.indexCard, { backgroundColor: C.purpleLight, borderColor: C.purple + "40" }]}>
+                      <Text style={ecgS.indexTitle}>Chronic Remodel</Text>
+                      <Text style={[ecgS.indexValue, { color: C.purple }]}>
+                        {ecgResult.injuryIndices?.chronic_remodeling_index?.toFixed(4)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={ecgS.compareRow}>
+                    <MaterialCommunityIcons
+                      name={ecgResult.injuryIndices?.acute_injury_index > ecgResult.injuryIndices?.chronic_remodeling_index
+                        ? "trending-up" : "trending-down"}
+                      size={16}
+                      color={ecgResult.injuryIndices?.acute_injury_index > ecgResult.injuryIndices?.chronic_remodeling_index
+                        ? C.red : C.purple}
+                    />
+                    <Text style={ecgS.compareText}>
+                      {ecgResult.injuryIndices?.acute_injury_index > ecgResult.injuryIndices?.chronic_remodeling_index
+                        ? "Acute injury pattern dominant" : "Chronic remodeling pattern dominant"}
+                    </Text>
+                  </View>
+                </ECGResultSection>
+              </SectionCard>
+
+          
+            </View>
+          ) : null}
+
+          {/* ══ PATIENT HISTORY ══ */}
+          <PatientHistorySection
+            patientSearchText={patientSearchText}
+            onSearchChange={handleSearchTextChange}
+            onSearch={handlePatientSearch}
+            patientLoading={patientLoading}
+          />
+
+          {patientLoading ? (
+            <View style={main.stateBox}>
+              <ActivityIndicator size="large" color={C.blue} />
+              <Text style={main.stateText}>Searching patient history...</Text>
+            </View>
+          ) : patientError ? (
+            <View style={{ marginTop: 8 }}>
+              <ErrorCard error={patientError} onDismiss={dismissPatientError} />
+              <TouchableOpacity onPress={handleRetrySearch} style={[main.retryBtn, { marginTop: 10, alignSelf: "center" }]}>
+                <Text style={main.retryBtnText}>Retry Search</Text>
+              </TouchableOpacity>
+            </View>
+          ) : patientDiagnosisList.length > 0 ? (
+            <FlatList
+              data={patientDiagnosisList}
+              renderItem={renderPatientDiagnosisItem}
+              keyExtractor={(item, i) => `${item.date}-${i}`}
+              scrollEnabled={false}
+              style={{ marginTop: 12 }}
+            />
+          ) : null}
+
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-// Styles
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const prim = StyleSheet.create({
+  sectionCard: {
+    backgroundColor: C.surface, borderRadius: 18, borderWidth: 1, borderColor: C.border,
+    padding: 20, shadowColor: "#1E3A8A", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.09, shadowRadius: 12, elevation: 4,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 20,
-    textTransform: "uppercase",
-    letterSpacing: 1,
+  sectionHeading: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 4 },
+  sectionHeadingIcon: { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  sectionHeadingTitle: { fontSize: 17, fontWeight: "700", color: C.textPrimary, letterSpacing: 0.2 },
+  sectionHeadingSubtitle: { fontSize: 12, color: C.textSecond, marginTop: 2 },
+  floatWrap: { marginBottom: 14 },
+  floatLabel: { fontSize: 10, fontWeight: "700", color: C.textSecond, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
+  floatBox: {
+    flexDirection: "row", alignItems: "center", backgroundColor: C.surfaceBlu,
+    borderRadius: 12, borderWidth: 1.5, borderColor: C.border, paddingHorizontal: 14, minHeight: 50,
   },
-  sectionHeader: {
-    marginTop: 30,
-    marginBottom: 15,
+  floatBoxDisabled: { opacity: 0.45 },
+  floatInput: { flex: 1, fontSize: 15, color: C.textPrimary, paddingVertical: 12 },
+  pickerInner: { flex: 1, color: C.textPrimary, height: 50, backgroundColor: "transparent" },
+  btnWrap: {
+    borderRadius: 14, overflow: "hidden", marginTop: 6,
+    shadowColor: C.darkBlue, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5,
   },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 5,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: "#cbd5e1",
-    fontStyle: "italic",
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  pickerContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  picker: {
-    height: 50,
-  },
-  recordSection: {
-    marginVertical: 20,
-    alignItems: "center",
-  },
-  recordButtonShadow: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
-    borderRadius: 15,
-  },
-  recordButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 18,
-    paddingHorizontal: 30,
-    borderRadius: 15,
-  },
-  recordButtonText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 12,
-  },
-  loadingContainer: {
-    alignItems: "center",
-    marginTop: 20,
-  },
-  loadingText: {
-    color: "#fff",
-    fontSize: 16,
-    marginTop: 10,
-  },
-  formSection: {
-    marginTop: 10,
-  },
-  submitButtonShadow: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
-    borderRadius: 15,
-    marginTop: 20,
-  },
-  submitButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 15,
-  },
-  submitButtonText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 10,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  resultCardGradient: {
-    borderRadius: 15,
-    marginTop: 20,
-    padding: 2,
-  },
-  resultCard: {
-    backgroundColor: "#fff",
-    borderRadius: 13,
-    padding: 20,
-    alignItems: "center",
-  },
-  cardIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 15,
-  },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#2c3e50",
-    marginBottom: 15,
-  },
-  resultRisk: {
-    fontSize: 16,
-    color: "#34495e",
-    marginBottom: 8,
-  },
-  riskBold: {
-    fontWeight: "bold",
-    fontSize: 18,
-    color: "#e74c3c",
-  },
-  resultProb: {
-    fontSize: 16,
-    color: "#34495e",
-  },
-  probBold: {
-    fontWeight: "bold",
-    fontSize: 18,
-    color: "#f39c12",
-  },
-  searchSection: {
-    marginTop: 15,
-    marginBottom: 20,
-  },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  searchInput: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    marginRight: 10,
-  },
-  searchButton: {
-    backgroundColor: "#5A81F8",
-    borderRadius: 10,
-    width: 50,
-    height: 50,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  errorContainer: {
-    alignItems: "center",
-    padding: 30,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 15,
-    marginVertical: 20,
-  },
-  errorText: {
-    color: "#fff",
-    fontSize: 16,
-    marginTop: 15,
-    textAlign: "center",
-  },
-  retryButton: {
-    backgroundColor: "#5A81F8",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 10,
-    marginTop: 15,
-  },
-  retryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  noDataContainer: {
-    alignItems: "center",
-    padding: 40,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 15,
-    marginVertical: 20,
-  },
-  noDataText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginTop: 20,
-    textAlign: "center",
-  },
-  noDataSubtext: {
-    color: "#cbd5e1",
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: "center",
-  },
-  logoutContainer: {
-    marginTop: 40,
-    marginBottom: 20,
-    alignItems: "center",
-  },
-  logoutButton: {
-    backgroundColor: "#e74c3c",
-    paddingVertical: 14,
-    paddingHorizontal: 40,
-    borderRadius: 10,
-  },
-  logoutButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 15 },
+  btnText: { fontSize: 16, fontWeight: "700", color: "#fff", letterSpacing: 0.3 },
 });
 
-const patientStyles = StyleSheet.create({
-  listContainer: {
-    paddingBottom: 20,
+const main = StyleSheet.create({
+  topBar: {
+    flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 20, paddingVertical: 14,
+    shadowColor: "#0F172A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 8,
   },
-  diagnosisContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 15,
-    marginBottom: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  topBarIcon: { width: 46, height: 46, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  topBarTitle: { fontSize: 22, fontWeight: "800", color: "#fff", letterSpacing: -0.3 },
+  topBarSub: { fontSize: 11, color: "rgba(255,255,255,0.7)", marginTop: 1 },
+  logoutBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(255,255,255,0.15)", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7,
   },
-  dateBanner: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    alignItems: "center",
+  logoutText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  divider: { height: 1, backgroundColor: C.border, marginVertical: 16 },
+  twoCol: { flexDirection: "row", gap: 12 },
+  recordBtnWrap: {
+    borderRadius: 14, overflow: "hidden", marginTop: 6,
+    shadowColor: C.purple, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5,
   },
-  dateBannerText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
+  recordBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 15 },
+  recordBtnText: { fontSize: 16, fontWeight: "700", color: "#fff" },
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff", marginLeft: 10, opacity: 0.9 },
+  resultCard: { marginTop: 14, borderRadius: 16, overflow: "hidden" },
+  resultCardInner: { flexDirection: "row", alignItems: "center", padding: 20, gap: 16 },
+  resultIconWrap: { width: 54, height: 54, borderRadius: 27, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  resultLabel: { fontSize: 10, color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: 1.2 },
+  resultValue: { fontSize: 22, fontWeight: "800", color: "#fff", marginTop: 3 },
+  resultProbWrap: { alignItems: "flex-end" },
+  resultProbValue: { fontSize: 30, fontWeight: "800", color: "#fff" },
+  resultProbLabel: { fontSize: 10, color: "rgba(255,255,255,0.75)", textTransform: "uppercase", letterSpacing: 1 },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  searchInputWrap: {
+    flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: C.surfaceBlu,
+    borderRadius: 12, borderWidth: 1.5, borderColor: C.border, paddingHorizontal: 14, minHeight: 50,
   },
-  sectionContainer: {
-    marginBottom: 10,
+  searchInput: { flex: 1, fontSize: 15, color: C.textPrimary, paddingVertical: 12 },
+  searchBtn: { borderRadius: 12, overflow: "hidden" },
+  searchBtnInner: { width: 50, height: 50, alignItems: "center", justifyContent: "center" },
+  stateBox: { alignItems: "center", paddingVertical: 40, gap: 12 },
+  stateText: { color: C.textSecond, fontSize: 15, textAlign: "center", lineHeight: 22 },
+  retryBtn: { backgroundColor: C.blueGhost, borderWidth: 1.5, borderColor: C.bluePale, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
+  retryBtnText: { color: C.blue, fontWeight: "700", fontSize: 14 },
+});
+
+const hist = StyleSheet.create({
+  card: {
+    backgroundColor: C.surface, borderRadius: 16, marginBottom: 14, borderWidth: 1,
+    borderColor: C.border, overflow: "hidden",
+    shadowColor: "#1E3A8A", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3,
   },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 15,
-    backgroundColor: "#f8f9fa",
+  dateBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 16 },
+  dateBannerText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  cardBody: { padding: 4 },
+  sectionWrap: { borderBottomWidth: 1, borderBottomColor: C.border },
+  sectionHeader: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
+  sectionIconBg: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  sectionTitle: { fontSize: 13, fontWeight: "700", color: C.textPrimary, flex: 1 },
+  sectionBody: { paddingHorizontal: 16, paddingBottom: 14, paddingTop: 4 },
+  listRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 6, gap: 8 },
+  dot: { width: 5, height: 5, borderRadius: 3, marginTop: 8 },
+  listText: { fontSize: 13, color: C.textSecond, flex: 1, lineHeight: 20 },
+  predRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  predText: { fontSize: 16, fontWeight: "700" },
+});
+
+const ecgS = StyleSheet.create({
+  uploadRow: { flexDirection: "row", gap: 12, marginBottom: 14 },
+  uploadBtn: { borderRadius: 12, borderWidth: 1.5, borderColor: C.border, overflow: "hidden" },
+  uploadBtnInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, gap: 8, backgroundColor: C.surfaceAlt },
+  uploadBtnText: { color: C.textPrimary, fontWeight: "600", fontSize: 14 },
+  previewWrap: { borderRadius: 12, overflow: "hidden", borderWidth: 1.5, borderColor: C.blue + "50", marginBottom: 4 },
+  previewImg: { width: "100%", height: 220, backgroundColor: C.surfaceBlu },
+  previewFooter: { flexDirection: "row", alignItems: "center", gap: 6, padding: 10, backgroundColor: C.greenLight },
+  previewFileName: { color: C.green, fontSize: 12, flex: 1, fontWeight: "600" },
+  emptyPreview: { height: 100, alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.bluePale, marginBottom: 4, backgroundColor: C.blueGhost },
+  emptyPreviewText: { color: C.textMuted, fontSize: 13 },
+  diagBanner: { borderRadius: 16, padding: 22, flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  diagLabel: { fontSize: 10, color: "rgba(255,255,255,0.7)", letterSpacing: 2.5, fontWeight: "700" },
+  diagName: { fontSize: 26, fontWeight: "800", color: "#fff", marginTop: 3 },
+  diagFullName: { fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 3 },
+  diagConfidWrap: { backgroundColor: "rgba(0,0,0,0.18)", borderRadius: 14, paddingHorizontal: 16, paddingVertical: 12, alignItems: "center" },
+  diagConfidValue: { fontSize: 22, fontWeight: "800", color: "#fff" },
+  diagConfidLabel: { fontSize: 9, color: "rgba(255,255,255,0.7)", letterSpacing: 1.5, marginTop: 2 },
+  patientRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.blueGhost, borderRadius: 10, padding: 11, marginBottom: 12, borderWidth: 1, borderColor: C.border },
+  patientRowText: { color: C.textSecond, fontSize: 13 },
+  resultSection: { borderBottomWidth: 1, borderBottomColor: C.border },
+  resultSectionHeader: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
+  resultIconBg: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  resultSectionTitle: { fontSize: 13, fontWeight: "700", color: C.textPrimary },
+  resultSectionBody: { paddingHorizontal: 16, paddingBottom: 14, paddingTop: 2 },
+  interpretText: { color: C.textSecond, fontSize: 13, lineHeight: 22 },
+  primaryTerr: { color: C.textSecond, fontSize: 12, marginBottom: 10 },
+  barRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  barLabel: { width: 64, color: C.textSecond, fontSize: 11, fontWeight: "600" },
+  barTrack: { flex: 1, height: 7, backgroundColor: C.border, borderRadius: 4, overflow: "hidden" },
+  barFill: { height: "100%", borderRadius: 4 },
+  barValue: { width: 34, fontSize: 11, fontWeight: "700", textAlign: "right" },
+  leadRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
+  rankBadge: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  rankText: { fontSize: 10, fontWeight: "700" },
+  leadName: { width: 52, color: C.textPrimary, fontSize: 12, fontWeight: "600" },
+  leadBarTrack: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: "hidden" },
+  leadBarFill: { height: "100%", borderRadius: 3 },
+  leadScore: { width: 50, color: C.textSecond, fontSize: 11, textAlign: "right" },
+  zoneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  zonePill: { flexDirection: "row", alignItems: "center", backgroundColor: C.surfaceAlt, borderRadius: 10, padding: 10, gap: 8, borderWidth: 1, borderColor: C.border, minWidth: 110, flex: 1 },
+  zoneDot: { width: 8, height: 8, borderRadius: 4 },
+  zoneLabel: { color: C.textMuted, fontSize: 9, textTransform: "uppercase", letterSpacing: 1 },
+  zoneValue: { fontSize: 15, fontWeight: "700" },
+  dominantBadge: { borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2, marginLeft: "auto" },
+  dominantBadgeText: { color: "#fff", fontSize: 7, fontWeight: "800", letterSpacing: 0.8 },
+  indicesRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  indexCard: { flex: 1, borderRadius: 12, padding: 14, alignItems: "center", borderWidth: 1 },
+  indexTitle: { color: C.textSecond, fontSize: 11, fontWeight: "600", marginBottom: 6, textAlign: "center" },
+  indexValue: { fontSize: 18, fontWeight: "800" },
+  compareRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.surfaceAlt, borderRadius: 10, padding: 10 },
+  compareText: { color: C.textSecond, fontSize: 12 },
+  disclaimer: { flexDirection: "row", alignItems: "flex-start", gap: 7, padding: 12, marginTop: 4, marginBottom: 8 },
+  disclaimerText: { color: C.textMuted, fontSize: 11, flex: 1, lineHeight: 17 },
+});
+
+const errS = StyleSheet.create({
+  wrap: {
+    marginTop: 14, borderRadius: 14, borderWidth: 1,
+    borderColor: C.red + "40", backgroundColor: C.redLight, overflow: "hidden",
   },
-  iconBackground: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
+  header: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 14, borderBottomWidth: 1, borderBottomColor: C.red + "20",
+    backgroundColor: C.red + "12",
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#2c3e50",
-    flex: 1,
-  },
-  sectionContent: {
-    padding: 15,
-    backgroundColor: "#fff",
-  },
-  listItemContainer: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 8,
-  },
-  bulletPoint: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#3498db",
-    marginTop: 6,
-    marginRight: 10,
-  },
-  listItemText: {
-    fontSize: 14,
-    color: "#34495e",
-    flex: 1,
-    lineHeight: 20,
-  },
-  predictionWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-  },
-  predictionText: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
+  headerText: { fontSize: 14, fontWeight: "700", color: C.red, flex: 1 },
+  dismissBtn: { padding: 4 },
+  fieldList: { padding: 14, gap: 6 },
+  fieldRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
+  fieldDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: C.red, marginTop: 7 },
+  fieldName: { fontSize: 13, fontWeight: "700", color: C.textPrimary },
+  fieldMsg: { fontSize: 13, color: C.red, flex: 1 },
 });

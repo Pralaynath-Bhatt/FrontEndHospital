@@ -26,7 +26,7 @@ export default function WelcomeHeader() {
           <Ionicons name="medical" size={28} color="#fff" />
         </View>
         <View>
-          <Text style={styles.greeting}>{greeting}, Dr. Chen!</Text>
+          <Text style={styles.greeting}>{greeting}, Dr.</Text>
           <Text style={styles.subText}>
             Welcome to your clinical dashboard
           </Text>
