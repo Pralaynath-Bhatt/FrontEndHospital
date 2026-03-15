@@ -13,7 +13,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "cardioai_server_ip";
-const DEFAULT_IP  = "http://192.168.31.52:8080";
+const DEFAULT_IP  = "https://nonpermeable-lamellirostral-harland.ngrok-free.dev";
 
 let _url = DEFAULT_IP;
 
