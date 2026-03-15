@@ -32,7 +32,7 @@ export default function DoctorLoginScreen({ navigation }) {
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${BASE_URL}:8080/api/doctor/login`, {
+      const response = await axios.post(`${BASE_URL}/api/doctor/login`, {
         name: email.trim(),
         password: password.trim(),
       });

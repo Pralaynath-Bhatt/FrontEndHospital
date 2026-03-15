@@ -198,7 +198,7 @@ export default function AudioTab() {
 
       // ── POST to Spring Boot → proxies to audio_server.py ──
       const response = await apiClient.post(
-        `${BASE_URL}:8080/api/heart/predict/audio`,
+        `${BASE_URL}/api/heart/predict/audio`,
         fd,
         { headers: { "Content-Type": "multipart/form-data" }, timeout: 90000 },
       );
@@ -293,7 +293,7 @@ export default function AudioTab() {
       };
 
       const response = await apiClient.post(
-        `${BASE_URL}:8080/api/heart/predict/text`,
+        `${BASE_URL}/api/heart/predict/text`,
         body,
         { headers: { "Content-Type": "application/json" } },
       );

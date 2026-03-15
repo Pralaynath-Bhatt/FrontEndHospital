@@ -63,7 +63,7 @@ export default function ManualTab() {
           ST_Slope: formData.ST_Slope,
         }],
       };
-      const response = await apiClient.post(`${BASE_URL}:8080/api/heart/predict/text`, body, {
+      const response = await apiClient.post(`${BASE_URL}/api/heart/predict/text`, body, {
         headers: { "Content-Type": "application/json" },
       });
       if (response.status === 200 && response.data) {

@@ -4,7 +4,7 @@ import BASE_URL from './Config';
 
 // Create axios instance
 const apiClient = axios.create({
-  baseURL: `${BASE_URL}:8080`,
+  baseURL: `${BASE_URL}`,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

@@ -153,7 +153,7 @@ export default function ECGTab() {
       } else {
         data.append("ecgImage", { uri: ecgImage.uri, name: ecgImage.name, type: ecgImage.type || "image/jpeg" });
       }
-      const response = await apiClient.post(`${BASE_URL}:8080/api/ecg/predict`, data, {
+      const response = await apiClient.post(`${BASE_URL}/api/ecg/predict`, data, {
         headers: { "Content-Type": "multipart/form-data" }, timeout: 60000, transformRequest: (d) => d,
       });
       if (response.status === 200 && response.data) setEcgResult(response.data?.data ?? response.data);

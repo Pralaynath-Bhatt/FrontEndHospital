@@ -86,7 +86,7 @@ export default function PatientHomeScreen({ route, navigation, onLogout }) {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${BASE_URL}:8080/api/patient/${encodeURIComponent(patientName)}/predictions`);
+      const res = await axios.get(`${BASE_URL}/api/patient/${encodeURIComponent(patientName)}/predictions`);
       
       const data = res.data.data.map(p => {
         const input = p.inputData || {};

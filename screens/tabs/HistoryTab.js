@@ -117,7 +117,7 @@ export default function HistoryTab() {
     if (!name) { setError({ type: "general", message: "Please enter a patient name to search." }); return; }
     setLoading(true); setError(null); setList([]); setSearched(true);
     try {
-      const response = await axios.get(`${BASE_URL}:8080/api/patient/${encodeURIComponent(name)}/predictions`, {
+      const response = await axios.get(`${BASE_URL}/api/patient/${encodeURIComponent(name)}/predictions`, {
         headers: { "Content-Type": "application/json" }, timeout: 10000,
       });
       if (response.status === 200 && response.data) {

@@ -85,7 +85,7 @@ export default function DoctorRegisterScreen({ navigation }) {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${BASE_URL}:8080/api/doctor/register`, {
+      const response = await axios.post(`${BASE_URL}/api/doctor/register`, {
         name: name.trim(),
         email: email.trim(),
         password,

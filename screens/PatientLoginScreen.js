@@ -40,7 +40,7 @@ export default function PatientLoginScreen({ navigation, onLogin }) {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${BASE_URL}:8080/api/patient/login`, {
+      const response = await axios.post(`${BASE_URL}/api/patient/login`, {
         name,
         password,
       });
