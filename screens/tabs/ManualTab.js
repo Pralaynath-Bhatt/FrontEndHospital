@@ -1,8 +1,8 @@
-// tabs/ManualTab.jsx
-import React, { useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, Dimensions,
+  Platform, Alert
 } from "react-native";
+import React, { useState, useCallback } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Picker } from "@react-native-picker/picker";
@@ -27,6 +27,8 @@ export default function ManualTab() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [heartResult, setHeartResult]   = useState(null);
   const [heartError, setHeartError]     = useState(null);
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+const [pdfError, setPdfError] = useState(null);
 
   const dismissError = useCallback(() => setHeartError(null), []);
 
@@ -76,6 +78,73 @@ export default function ManualTab() {
       setIsSubmitting(false);
     }
   }, [formData]);
+  const downloadPdf = useCallback(async () => {
+  try {
+    setIsPdfLoading(true);
+    setPdfError(null);
+
+    const response = await apiClient.post(
+      `${BASE_URL}/api/heart/predict/text/pdf`,
+      {
+        patientName: formData.patientName.trim(),
+        patientData: [{
+          Age: parseInt(formData.Age),
+          Sex: formData.Sex,
+          ChestPainType: formData.ChestPainType,
+          RestingBP: parseInt(formData.RestingBP),
+          Cholesterol: parseInt(formData.Cholesterol),
+          FastingBS: parseInt(formData.FastingBS),
+          RestingECG: formData.RestingECG,
+          MaxHR: parseInt(formData.MaxHR),
+          ExerciseAngina: formData.ExerciseAngina,
+          Oldpeak: parseFloat(formData.Oldpeak),
+          ST_Slope: formData.ST_Slope,
+        }],
+      },
+      {
+        responseType: "blob",
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    const blob = response.data;
+    const fileName = `${formData.patientName || "report"}_heart_report.pdf`;
+
+    if (Platform.OS === "web") {
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } else {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+
+      reader.onloadend = async () => {
+        const base64 = reader.result.split(",")[1];
+        const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+        await FileSystem.writeAsStringAsync(fileUri, base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri);
+        } else {
+          Alert.alert("Saved", fileUri);
+        }
+      };
+    }
+
+  } catch (error) {
+    setPdfError(parseApiError(error));
+  } finally {
+    setIsPdfLoading(false);
+  }
+}, [formData]);
 
   return (
     <ScrollView
@@ -203,8 +272,33 @@ export default function ManualTab() {
                 <Text style={s.resultProbLabel}>Probability</Text>
               </View>
             </LinearGradient>
+          <SectionCard style={{ marginTop: 12 }}>
+  <SectionHeading
+    icon="file-pdf-box"
+    title="Download Report"
+    subtitle="Generate PDF for this prediction"
+    color={C.purple}
+  />
+  <Divider />
+
+  <PrimaryButton
+    label={isPdfLoading ? "Generating PDF…" : "Download PDF Report"}
+    icon="download"
+    onPress={downloadPdf}
+    loading={isPdfLoading}
+    disabled={isPdfLoading}
+    gradient={G.purple}
+  />
+</SectionCard>
           </View>
+          
         ) : null}
+
+        {pdfError && (
+  <ErrorCard error={pdfError} onDismiss={() => setPdfError(null)} />
+)}
+
+
 
       </View>
     </ScrollView>
