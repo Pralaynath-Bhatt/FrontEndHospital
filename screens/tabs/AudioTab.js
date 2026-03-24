@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  ActivityIndicator, Dimensions, Alert, TextInput,
+  ActivityIndicator, Dimensions, Alert, TextInput, Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -17,6 +17,13 @@ import {
 } from "./SharedComponents";
 import BASE_URL from "../Config";
 import apiClient from "../Apiclient";
+
+// Conditionally import native-only modules to avoid web bundling errors
+let FileSystem, Sharing;
+if (Platform.OS !== "web") {
+  FileSystem = require("expo-file-system");
+  Sharing    = require("expo-sharing");
+}
 
 const { width } = Dimensions.get("window");
 const isWeb = width > 900;
@@ -129,9 +136,12 @@ export default function AudioTab() {
   const [isPredicting, setIsPredicting] = useState(false);
   const [predResult, setPredResult]     = useState(null);
   const [predError, setPredError]       = useState(null);
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [pdfError, setPdfError]         = useState(null);
 
   const dismissAudioError = useCallback(() => setAudioError(null), []);
   const dismissPredError  = useCallback(() => setPredError(null), []);
+  const dismissPdfError   = useCallback(() => setPdfError(null), []);
   const set = useCallback((key) => (v) => setFormData(p => ({ ...p, [key]: v })), []);
 
   useEffect(() => {
@@ -183,7 +193,6 @@ export default function AudioTab() {
         return;
       }
 
-      // Build multipart form — field names must match Spring Boot @RequestParam
       const fd = new FormData();
       fd.append("patientName", patientName.trim());
 
@@ -196,19 +205,14 @@ export default function AudioTab() {
         fd.append("audioFile", { uri, name: parts[parts.length - 1], type: "audio/m4a" });
       }
 
-      // ── POST to Spring Boot → proxies to audio_server.py ──
       const response = await apiClient.post(
         `${BASE_URL}/api/heart/predict/audio`,
         fd,
         { headers: { "Content-Type": "multipart/form-data" }, timeout: 90000 },
       );
 
-      // ── Parse response ──────────────────────────────────────────────────────
-      // Backend wraps payload in ApiResponse:
-      // { success, status, message, data: { extractedData, confidence, ... }, timestamp }
-      // So the actual payload is response.data.data
-      const outer = response.data;           // ApiResponse wrapper
-      const inner = outer?.data || outer;    // actual payload inside .data
+      const outer = response.data;
+      const inner = outer?.data || outer;
 
       if (inner?.success === true || outer?.success === true) {
         const ex   = inner.extractedData || {};
@@ -229,8 +233,6 @@ export default function AudioTab() {
         });
 
         setTranscript(inner.transcript  || "");
-        // Strip the "⚠ Could not extract..." warning from summary if T5 not loaded
-        // We show defaulted info via amber badges instead — cleaner UX
         const rawSummary = inner.summary || "";
         setSummary(rawSummary.split("\n\n⚠")[0].trim());
         setConfidence(conf);
@@ -298,7 +300,6 @@ export default function AudioTab() {
         { headers: { "Content-Type": "application/json" } },
       );
 
-      // Handle both flat and wrapped responses
       const outer  = response.data;
       const result = outer?.data || outer;
 
@@ -306,6 +307,8 @@ export default function AudioTab() {
         setPredResult({
           riskLevel:   result.riskLevel   || result.RiskLevel   || "Unknown",
           probability: result.probability || result.Probability || 0,
+          diagnosis:   result.riskLevel   || result.RiskLevel   || "Unknown",
+          confidence:  (result.probability || result.Probability || 0) * 100,
         });
         setStep(2);
       }
@@ -315,6 +318,112 @@ export default function AudioTab() {
       setIsPredicting(false);
     }
   }, [formData, patientName, transcript, summary]);
+
+  // ── PDF Download ─────────────────────────────────────────────────────────────
+  const buildPdfBody = useCallback(() => ({
+    patientName: patientName.trim(),
+    patientData: [{
+      Age:            parseInt(formData.Age),
+      Sex:            formData.Sex,
+      ChestPainType:  formData.ChestPainType,
+      RestingBP:      parseInt(formData.RestingBP),
+      Cholesterol:    parseInt(formData.Cholesterol),
+      FastingBS:      parseInt(formData.FastingBS),
+      RestingECG:     formData.RestingECG,
+      MaxHR:          parseInt(formData.MaxHR),
+      ExerciseAngina: formData.ExerciseAngina,
+      Oldpeak:        parseFloat(formData.Oldpeak),
+      ST_Slope:       formData.ST_Slope,
+    }],
+    audioTranscript: transcript,
+    audioSummary:    summary,
+  }), [formData, patientName, transcript, summary]);
+
+  const downloadPdf = useCallback(async () => {
+  try {
+    setIsPdfLoading(true);
+    setPdfError(null);
+
+    const body = buildPdfBody();
+    const fileName = `${patientName.trim() || "report"}_heart_report.pdf`;
+
+    // ─────────────────────────────────────────────
+    // API CALL USING apiClient (TOKEN AUTO INCLUDED)
+    // ─────────────────────────────────────────────
+    const response = await apiClient.post(
+      `${BASE_URL}/api/heart/predict/text/pdf`,
+      body,
+      {
+        responseType: "blob", // 🔥 VERY IMPORTANT
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 120000,
+      }
+    );
+
+    const blob = response.data;
+
+    // ─────────────────────────────────────────────
+    // 🌐 WEB DOWNLOAD
+    // ─────────────────────────────────────────────
+    if (Platform.OS === "web") {
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+
+      document.body.appendChild(link);
+      link.click();
+
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }
+
+    // ─────────────────────────────────────────────
+    // 📱 MOBILE (ANDROID / IOS)
+    // ─────────────────────────────────────────────
+    else {
+      const base64 = await blobToBase64(blob);
+
+      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: "application/pdf",
+          dialogTitle: "Download Heart Report",
+          UTI: "com.adobe.pdf",
+        });
+      } else {
+        Alert.alert("Saved", `Report saved to:\n${fileUri}`);
+      }
+    }
+
+  } catch (error) {
+    setPdfError(parseApiError(error));
+  } finally {
+    setIsPdfLoading(false);
+  }
+}, [buildPdfBody, patientName]);
+
+const blobToBase64 = (blob) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const base64data = reader.result.split(",")[1];
+      resolve(base64data);
+    };
+    reader.readAsDataURL(blob);
+  });
+};
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = useCallback(() => {
@@ -334,6 +443,7 @@ export default function AudioTab() {
     setPredResult(null);
     setPredError(null);
     setAudioError(null);
+    setPdfError(null);
   }, []);
 
   // ─── RENDER ─────────────────────────────────────────────────────────────────
@@ -449,21 +559,15 @@ export default function AudioTab() {
               />
               <Divider />
 
-              {/* Age + Sex */}
               <TwoCol>
                 <View style={{ flex: 1 }}>
                   <Field label="Age" icon="calendar" conf={confidence.Age}>
-                    <TextInputInline
-                      value={formData.Age} onChangeText={set("Age")} keyboardType="numeric"
-                    />
+                    <TextInputInline value={formData.Age} onChangeText={set("Age")} keyboardType="numeric" />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label="Sex" conf={confidence.Sex}>
-                    <Picker
-                      selectedValue={formData.Sex} onValueChange={set("Sex")}
-                      style={s.pickerInner} dropdownIconColor={C.textSecond}
-                    >
+                    <Picker selectedValue={formData.Sex} onValueChange={set("Sex")} style={s.pickerInner} dropdownIconColor={C.textSecond}>
                       <Picker.Item label="Male (M)"   value="M" />
                       <Picker.Item label="Female (F)" value="F" />
                     </Picker>
@@ -471,15 +575,10 @@ export default function AudioTab() {
                 </View>
               </TwoCol>
 
-              {/* Chest Pain + Exercise Angina */}
               <TwoCol>
                 <View style={{ flex: 1 }}>
                   <Field label="Chest Pain Type" conf={confidence.ChestPainType}>
-                    <Picker
-                      selectedValue={formData.ChestPainType}
-                      onValueChange={set("ChestPainType")}
-                      style={s.pickerInner} dropdownIconColor={C.textSecond}
-                    >
+                    <Picker selectedValue={formData.ChestPainType} onValueChange={set("ChestPainType")} style={s.pickerInner} dropdownIconColor={C.textSecond}>
                       <Picker.Item label="TA – Typical Angina" value="TA"  />
                       <Picker.Item label="ATA – Atypical"      value="ATA" />
                       <Picker.Item label="NAP – Non-Anginal"   value="NAP" />
@@ -489,11 +588,7 @@ export default function AudioTab() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label="Exercise Angina" conf={confidence.ExerciseAngina}>
-                    <Picker
-                      selectedValue={formData.ExerciseAngina}
-                      onValueChange={set("ExerciseAngina")}
-                      style={s.pickerInner} dropdownIconColor={C.textSecond}
-                    >
+                    <Picker selectedValue={formData.ExerciseAngina} onValueChange={set("ExerciseAngina")} style={s.pickerInner} dropdownIconColor={C.textSecond}>
                       <Picker.Item label="No"  value="N" />
                       <Picker.Item label="Yes" value="Y" />
                     </Picker>
@@ -501,54 +596,36 @@ export default function AudioTab() {
                 </View>
               </TwoCol>
 
-              {/* Resting BP + Cholesterol */}
               <TwoCol>
                 <View style={{ flex: 1 }}>
                   <Field label="Resting BP (mm Hg)" icon="pulse" conf={confidence.RestingBP}>
-                    <TextInputInline
-                      value={formData.RestingBP} onChangeText={set("RestingBP")}
-                      keyboardType="numeric"
-                    />
+                    <TextInputInline value={formData.RestingBP} onChangeText={set("RestingBP")} keyboardType="numeric" />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label="Cholesterol (mg/dl)" icon="water" conf={confidence.Cholesterol}>
-                    <TextInputInline
-                      value={formData.Cholesterol} onChangeText={set("Cholesterol")}
-                      keyboardType="numeric"
-                    />
+                    <TextInputInline value={formData.Cholesterol} onChangeText={set("Cholesterol")} keyboardType="numeric" />
                   </Field>
                 </View>
               </TwoCol>
 
-              {/* Max HR + Oldpeak */}
               <TwoCol>
                 <View style={{ flex: 1 }}>
                   <Field label="Max Heart Rate" icon="heart-flash" conf={confidence.MaxHR}>
-                    <TextInputInline
-                      value={formData.MaxHR} onChangeText={set("MaxHR")}
-                      keyboardType="numeric"
-                    />
+                    <TextInputInline value={formData.MaxHR} onChangeText={set("MaxHR")} keyboardType="numeric" />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label="Oldpeak (ST Depr.)" icon="chart-line" conf={confidence.Oldpeak}>
-                    <TextInputInline
-                      value={formData.Oldpeak} onChangeText={set("Oldpeak")}
-                      keyboardType="decimal-pad"
-                    />
+                    <TextInputInline value={formData.Oldpeak} onChangeText={set("Oldpeak")} keyboardType="decimal-pad" />
                   </Field>
                 </View>
               </TwoCol>
 
-              {/* Fasting BS + Resting ECG */}
               <TwoCol>
                 <View style={{ flex: 1 }}>
                   <Field label="Fasting Blood Sugar" conf={confidence.FastingBS}>
-                    <Picker
-                      selectedValue={formData.FastingBS} onValueChange={set("FastingBS")}
-                      style={s.pickerInner} dropdownIconColor={C.textSecond}
-                    >
+                    <Picker selectedValue={formData.FastingBS} onValueChange={set("FastingBS")} style={s.pickerInner} dropdownIconColor={C.textSecond}>
                       <Picker.Item label="Normal (≤120)" value="0" />
                       <Picker.Item label="High (>120)"   value="1" />
                     </Picker>
@@ -556,10 +633,7 @@ export default function AudioTab() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label="Resting ECG" conf={confidence.RestingECG}>
-                    <Picker
-                      selectedValue={formData.RestingECG} onValueChange={set("RestingECG")}
-                      style={s.pickerInner} dropdownIconColor={C.textSecond}
-                    >
+                    <Picker selectedValue={formData.RestingECG} onValueChange={set("RestingECG")} style={s.pickerInner} dropdownIconColor={C.textSecond}>
                       <Picker.Item label="Normal" value="Normal" />
                       <Picker.Item label="ST"     value="ST"     />
                       <Picker.Item label="LVH"    value="LVH"    />
@@ -568,12 +642,8 @@ export default function AudioTab() {
                 </View>
               </TwoCol>
 
-              {/* ST Slope — full width */}
               <Field label="ST Slope" conf={confidence.ST_Slope}>
-                <Picker
-                  selectedValue={formData.ST_Slope} onValueChange={set("ST_Slope")}
-                  style={s.pickerInner} dropdownIconColor={C.textSecond}
-                >
+                <Picker selectedValue={formData.ST_Slope} onValueChange={set("ST_Slope")} style={s.pickerInner} dropdownIconColor={C.textSecond}>
                   <Picker.Item label="Up"   value="Up"   />
                   <Picker.Item label="Flat" value="Flat" />
                   <Picker.Item label="Down" value="Down" />
@@ -602,6 +672,7 @@ export default function AudioTab() {
         {/* ══ STEP 2 — RESULT ══════════════════════════════════════════════════ */}
         {step === 2 && predResult && (
           <>
+            {/* Risk result banner */}
             <View style={s.resultCard}>
               <LinearGradient
                 colors={predResult.riskLevel?.toLowerCase().includes("high") ? G.red : G.green}
@@ -627,14 +698,35 @@ export default function AudioTab() {
 
             {/* Transcript reference */}
             <SectionCard style={{ marginTop: 12 }}>
-              <SectionHeading
-                icon="text-to-speech" title="Transcript Reference" color={C.textMuted}
-              />
+              <SectionHeading icon="text-to-speech" title="Transcript Reference" color={C.textMuted} />
               <Divider />
               <View style={s.transcriptBox}>
                 <Text style={s.transcriptText}>{transcript}</Text>
               </View>
             </SectionCard>
+
+            {/* ── PDF Report Card ── */}
+            <SectionCard style={{ marginTop: 12 }}>
+              <SectionHeading
+                icon="file-pdf-box" title="Download Report" color={C.purple}
+                subtitle="Generate a full PDF report for this consultation"
+              />
+              <Divider />
+              <PrimaryButton
+                label={isPdfLoading ? "Generating PDF…" : "Download PDF Report"}
+                icon="download"
+                onPress={downloadPdf}
+                loading={isPdfLoading}
+                disabled={isPdfLoading}
+                gradient={G.purple}
+              />
+            </SectionCard>
+
+            {pdfError && (
+              <View style={{ marginTop: 8 }}>
+                <ErrorCard error={pdfError} onDismiss={dismissPdfError} />
+              </View>
+            )}
 
             <TouchableOpacity
               onPress={handleReset}

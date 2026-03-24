@@ -9,6 +9,7 @@ import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import * as MediaLibrary from "expo-media-library";
 
 import { C, G } from "../Constraint";
 import {
@@ -94,9 +95,9 @@ const ECGLeadItem = memo(({ lead, score, rank }) => {
   );
 });
 
-// ─── PDF Report Card (download only) ─────────────────────────────────────────
+// ─── PDF Report Card ──────────────────────────────────────────────────────────
 
-const PdfReportCard = memo(({ ecgImage, patientName, ecgResult, onError }) => {
+export const PdfReportCard = memo(({ ecgImage, patientName, ecgResult, onError }) => {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
 
@@ -135,26 +136,68 @@ const PdfReportCard = memo(({ ecgImage, patientName, ecgResult, onError }) => {
       }
 
       const { base64Pdf, fileName } = inner;
+      const safeFileName = fileName || `ECG_Report_${patientName.replace(/\s+/g, "_")}_${Date.now()}.pdf`;
 
       if (Platform.OS === "web") {
+        // ── Web: direct download via anchor tag ──
         const link = document.createElement("a");
         link.href = `data:application/pdf;base64,${base64Pdf}`;
-        link.download = fileName;
+        link.download = safeFileName;
         link.click();
+
       } else {
-        const fileUri = FileSystem.documentDirectory + fileName;
+        // ── Mobile (iOS + Android): write to cache, then share ──
+        // cacheDirectory is reliable on both platforms and persists long enough to share
+        const fileUri = FileSystem.cacheDirectory + safeFileName;
+
         await FileSystem.writeAsStringAsync(fileUri, base64Pdf, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType:    "application/pdf",
-            dialogTitle: "Save ECG Report",
-            UTI:         "com.adobe.pdf",
-          });
+
+        if (Platform.OS === "android") {
+          // On Android, try to save to Downloads via MediaLibrary first
+          try {
+            const { status } = await MediaLibrary.requestPermissionsAsync();
+            if (status === "granted") {
+              const asset = await MediaLibrary.createAssetAsync(fileUri);
+              // Move to Downloads album
+              let album = await MediaLibrary.getAlbumAsync("Download");
+              if (album == null) {
+                await MediaLibrary.createAlbumAsync("Download", asset, false);
+              } else {
+                await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+              }
+              Alert.alert(
+                "Report Saved",
+                `"${safeFileName}" has been saved to your Downloads folder.`,
+                [{ text: "OK" }]
+              );
+            } else {
+              // Fall back to share sheet if permission denied
+              await Sharing.shareAsync(fileUri, {
+                mimeType: "application/pdf",
+                dialogTitle: "Save ECG Report",
+              });
+            }
+          } catch (mediaErr) {
+            // If MediaLibrary fails for any reason, fall back to share sheet
+            await Sharing.shareAsync(fileUri, {
+              mimeType: "application/pdf",
+              dialogTitle: "Save ECG Report",
+            });
+          }
         } else {
-          Alert.alert("Saved", `Report saved to: ${fileUri}`);
+          // ── iOS: share sheet is the standard way (Save to Files option) ──
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            await Sharing.shareAsync(fileUri, {
+              mimeType: "application/pdf",
+              dialogTitle: "Save ECG Report",
+              UTI: "com.adobe.pdf",
+            });
+          } else {
+            Alert.alert("Saved", `Report saved to: ${fileUri}`);
+          }
         }
       }
 
@@ -194,11 +237,17 @@ const PdfReportCard = memo(({ ecgImage, patientName, ecgResult, onError }) => {
         </View>
       </View>
 
-      {/* Success badge shown after download */}
+      {/* Success badge */}
       {downloaded && (
         <View style={s.downloadedBadge}>
           <MaterialCommunityIcons name="check-circle" size={16} color={C.green} />
-          <Text style={s.downloadedText}>Report downloaded successfully</Text>
+          <Text style={s.downloadedText}>
+            {Platform.OS === "android"
+              ? "Report saved to Downloads folder"
+              : Platform.OS === "ios"
+              ? "Report ready — use Share to save to Files"
+              : "Report downloaded successfully"}
+          </Text>
         </View>
       )}
 
@@ -221,7 +270,11 @@ const PdfReportCard = memo(({ ecgImage, patientName, ecgResult, onError }) => {
       </TouchableOpacity>
 
       <Text style={s.pdfNote}>
-        Includes diagnosis, confidence, territorial distribution, dominant leads, waveform zones, injury indices, and clinical interpretation.
+        {Platform.OS === "android"
+          ? "Report will be saved directly to your Downloads folder."
+          : Platform.OS === "ios"
+          ? "Tap Download then use the Share sheet to save to Files or share via email."
+          : "Includes diagnosis, confidence, territorial distribution, dominant leads, waveform zones, injury indices, and clinical interpretation."}
       </Text>
     </SectionCard>
   );
@@ -450,7 +503,7 @@ export default function ECGTab() {
               </ECGResultSection>
             </SectionCard>
 
-            {/* ── PDF Report — download only ── */}
+            {/* ── PDF Report ── */}
             <PdfReportCard
               ecgImage={ecgImage}
               patientName={ecgPatientName}
@@ -529,7 +582,7 @@ const s = StyleSheet.create({
   pdfInfoChip:         { flexDirection: "row", alignItems: "center", gap: 5, flex: 1, backgroundColor: C.surfaceAlt, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: C.border },
   pdfInfoChipText:     { fontSize: 12, color: C.textSecond, fontWeight: "600", flex: 1 },
   downloadedBadge:     { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.greenLight, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: C.green + "40" },
-  downloadedText:      { color: C.green, fontSize: 13, fontWeight: "600" },
+  downloadedText:      { color: C.green, fontSize: 13, fontWeight: "600", flex: 1 },
   pdfGenerateBtn:      { borderRadius: 14, overflow: "hidden", shadowColor: C.red, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   pdfGenerateBtnInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14 },
   pdfGenerateBtnText:  { fontSize: 15, fontWeight: "700", color: "#fff" },

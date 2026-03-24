@@ -53,22 +53,22 @@ export const G = {
 };
 
 const TABS = [
-  { id: "ecg",     label: "ECG",     icon: "waveform",       gradient: G.teal   },
-  { id: "audio",   label: "Audio",   icon: "microphone",     gradient: G.purple },
   { id: "manual",  label: "Manual",  icon: "clipboard-text", gradient: G.blue   },
+  { id: "audio",   label: "Audio",   icon: "microphone",     gradient: G.purple },
+  { id: "ecg",     label: "ECG",     icon: "waveform",       gradient: G.teal   },
   { id: "history", label: "History", icon: "history",        gradient: G.green  },
 ];
 
 export default function DoctorHomeScreen({ onLogout }) {
-  const [activeTab, setActiveTab] = useState("ecg");
+  const [activeTab, setActiveTab] = useState("manual");
 
   const renderTab = useCallback(() => {
-    switch (activeTab) {
-      case "ecg":     return <ECGTab />;
-      case "audio":   return <AudioTab />;
+    switch (activeTab) {      
       case "manual":  return <ManualTab />;
+      case "audio":   return <AudioTab />;
+      case "ecg":     return <ECGTab />;
       case "history": return <HistoryTab />;
-      default:        return <ECGTab />;
+      default:        return <ManualTab />;
     }
   }, [activeTab]);
 
@@ -81,7 +81,7 @@ export default function DoctorHomeScreen({ onLogout }) {
           <MaterialCommunityIcons name="heart-pulse" size={24} color="#fff" />
         </LinearGradient>
         <View style={{ flex: 1 }}>
-          <Text style={s.topBarTitle}>CardioAI</Text>
+          <Text style={s.topBarTitle}>CardioPath</Text>
           <Text style={s.topBarSub}>Heart Disease Prediction System</Text>
         </View>
         <TouchableOpacity onPress={onLogout} style={s.logoutBtn}>

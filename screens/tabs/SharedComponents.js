@@ -22,10 +22,14 @@ export const parseApiError = (error) => {
     }));
     return { type: "validation", message: errBody.message || "Validation Error", fields };
   }
+
+  // ✅ If data is a plain string, prefer it over message
   const msg =
+    (typeof errBody.data === "string" && errBody.data) ||
     errBody?.message || errBody?.error || errBody?.detail ||
     (typeof errBody === "string" ? errBody : null) ||
     error?.message || "Something went wrong.";
+
   return { type: "general", message: msg };
 };
 
